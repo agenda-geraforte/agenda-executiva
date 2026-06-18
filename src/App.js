@@ -65,9 +65,6 @@ export default function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isAtaOpen, setIsAtaOpen] = useState(false);
 
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [isAtaOpen, setIsAtaOpen] = useState(false);
-
   // === ADICIONE ESTE BLOCO AQUI ===
   useEffect(() => {
     // 1. Assim que o app abre, ele procura o "crachá" salvo no celular
