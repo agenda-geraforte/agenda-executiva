@@ -1180,15 +1180,10 @@ export default function App() {
                                                   task.description || ""
                                                 }
                                                 onBlur={(e) => {
-                                                  handleUpdateTask(
-                                                    task.id,
-                                                    {
-                                                      description:
-                                                        e.target.value,
-                                                    },
-                                                    false
-                                                  );
-                                                }}
+  if (e.target.value !== task.description) {
+    handleUpdateTask(task.id, { description: e.target.value }, false);
+  }
+}}
                                                 onKeyDown={(e) =>
                                                   e.key === "Enter" &&
                                                   handleUpdateTask(
