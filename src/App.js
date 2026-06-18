@@ -1122,7 +1122,7 @@ export default function App() {
                                                       e.target.value
                                                     ),
                                                   },
-                                                  false
+                                                  true
                                                 )
                                               }
                                               className={`w-auto md:w-full text-center text-sm font-black p-1.5 md:p-1 rounded bg-slate-100 dark:bg-slate-800 border-none outline-none cursor-pointer transition-colors ${
@@ -1156,7 +1156,7 @@ export default function App() {
                                                 handleUpdateTask(
                                                   task.id,
                                                   { type: e.target.value },
-                                                  false
+                                                  true
                                                 )
                                               }
                                               className="w-auto md:w-full text-center text-xs font-bold p-1.5 md:p-1 rounded bg-slate-100 dark:bg-slate-800 border-none outline-none cursor-pointer text-slate-700 dark:text-slate-300"
@@ -1180,26 +1180,23 @@ export default function App() {
                                                   task.description || ""
                                                 }
                                                 onBlur={(e) => {
-  if (e.target.value !== task.description) {
-    handleUpdateTask(task.id, { description: e.target.value }, false);
-  }
-}}
+    // BLINDAGEM: Garante que "undefined" da nuvem e "" do input sejam tratados como iguais
+    const currentDesc = task.description || "";
+    if (e.target.value !== currentDesc) {
+      handleUpdateTask(task.id, { description: e.target.value }, true);
+    }
+  }}
                                                 onKeyDown={(e) =>
-                                                  e.key === "Enter" &&
-                                                  handleUpdateTask(
-                                                    task.id,
-                                                    {
-                                                      description:
-                                                        e.target.value,
-                                                      priority: task.priority,
-                                                      type: task.type,
-                                                      eisenhower:
-                                                        task.eisenhower,
-                                                      isEditing: false,
-                                                    },
-                                                    true
-                                                  )
-                                                }
+  e.key === "Enter" &&
+  handleUpdateTask(
+    task.id,
+    {
+      description: e.target.value,
+      isEditing: false,
+    },
+    true
+  )
+}
                                                 className="w-full bg-slate-100 dark:bg-slate-800 md:bg-transparent px-2 py-2 md:py-1 outline-none text-base md:text-sm rounded md:border-b border-teal-500 text-slate-800 dark:text-slate-200"
                                                 autoFocus
                                               />
@@ -1243,7 +1240,7 @@ export default function App() {
                                                   {
                                                     eisenhower: e.target.value,
                                                   },
-                                                  false
+                                                  true
                                                 )
                                               }
                                               className="w-full text-sm md:text-xs p-2 md:p-1 rounded bg-slate-100 dark:bg-slate-800 border-none outline-none cursor-pointer text-slate-600 dark:text-slate-300 text-left md:text-center"
@@ -1263,7 +1260,7 @@ export default function App() {
                                               </option>
                                             </select>
                                           </td>
-
+          
                                           <td className="flex md:table-cell items-center justify-between md:justify-center p-3 md:p-3 bg-slate-50 dark:bg-slate-900/50 md:bg-transparent rounded-b-lg md:rounded-none mt-1 md:mt-0">
                                             <span className="md:hidden text-xs font-bold text-slate-400 uppercase tracking-widest">
                                               Ações
@@ -1276,8 +1273,7 @@ export default function App() {
                                                     handleUpdateTask(
                                                       task.id,
                                                       {
-                                                        description:
-                                                          task.description,
+                                    
                                                         isEditing: false,
                                                       },
                                                       true
@@ -1299,7 +1295,7 @@ export default function App() {
                                                     handleUpdateTask(
                                                       task.id,
                                                       { isEditing: true },
-                                                      false
+                                                      true
                                                     );
                                                   }}
                                                   className="p-2 md:p-1 rounded cursor-pointer bg-slate-200 dark:bg-slate-800 md:bg-transparent transition-colors hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-400 hover:text-amber-500 flex items-center gap-1"
