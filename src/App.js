@@ -65,6 +65,29 @@ export default function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isAtaOpen, setIsAtaOpen] = useState(false);
 
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isAtaOpen, setIsAtaOpen] = useState(false);
+
+  // === ADICIONE ESTE BLOCO AQUI ===
+  useEffect(() => {
+    // 1. Assim que o app abre, ele procura o "crachá" salvo no celular
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session) {
+        setIsAuthenticated(true);
+      }
+    });
+
+    // 2. Fica de olho nos bastidores (se a sessão expirar ou o usuário deslogar)
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setIsAuthenticated(!!session);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+  // ================================
+
   // --- LÓGICA DO TEMA REFEITA PARA SALVAR NO LOCALSTORAGE ---
   const [isDarkMode, setIsDarkMode] = useState(() => {
     const savedTheme = localStorage.getItem("theme");
