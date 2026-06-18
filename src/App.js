@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import Login from "./Login";
 import AtaReuniao from "./AtaReuniao";
 import { supabase } from "./supabaseClient";
@@ -22,6 +22,40 @@ import {
   ChevronDown,
   X,
 } from "lucide-react";
+
+function evalMathExpr(expr) {
+  const s = expr.replace(/\s/g, "");
+  if (!s) return undefined;
+  let pos = 0;
+  function parseE() {
+    let v = parseT();
+    while (pos < s.length && (s[pos] === "+" || s[pos] === "-")) {
+      const op = s[pos++];
+      const r = parseT();
+      v = op === "+" ? v + r : v - r;
+    }
+    return v;
+  }
+  function parseT() {
+    let v = parseF();
+    while (pos < s.length && (s[pos] === "*" || s[pos] === "/" || s[pos] === "%")) {
+      const op = s[pos++];
+      const r = parseF();
+      if (op === "*") v *= r;
+      else if (op === "/") v /= r;
+      else v %= r;
+    }
+    return v;
+  }
+  function parseF() {
+    if (s[pos] === "(") { pos++; const v = parseE(); pos++; return v; }
+    if (s[pos] === "-") { pos++; return -parseF(); }
+    const start = pos;
+    while (pos < s.length && /[0-9.]/.test(s[pos])) pos++;
+    return parseFloat(s.slice(start, pos));
+  }
+  return parseE();
+}
 
 export default function App() {
   const [isSidebarExpanded, setIsSidebarExpanded] = useState(false);
@@ -144,7 +178,7 @@ export default function App() {
   const [tasksLoaded, setTasksLoaded] = useState(false);
   const [atas, setAtas] = useState([]);
 
-  const fetchTasks = async () => {
+  const fetchTasks = useCallback(async () => {
     const { data, error } = await supabase.from("tarefas").select("*");
     if (error) {
       console.error("Erro ao buscar tarefas:", error);
@@ -207,7 +241,7 @@ export default function App() {
           .eq("id", item.id);
       }
     }
-  };
+  }, [anoAtualStr, mesAtual, diaAtual]);
 
   const carregarAtas = async () => {
     const { data, error } = await supabase
@@ -256,7 +290,7 @@ export default function App() {
     };
 
     carregarDadosIniciais();
-  }, [isAuthenticated]);
+  }, [isAuthenticated, fetchTasks]);
 
   const matches = useMemo(() => {
     if (!searchQuery.trim()) return [];
@@ -366,7 +400,7 @@ export default function App() {
     if (calcTab === "padrao") {
       try {
         if (calcExpressao) {
-          const res = new Function("return " + calcExpressao)();
+          const res = evalMathExpr(calcExpressao);
           setCalcResultado(res !== undefined && !isNaN(res) ? res : "...");
         } else setCalcResultado("");
       } catch (e) {
