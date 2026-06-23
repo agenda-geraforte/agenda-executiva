@@ -1,12 +1,14 @@
-self.addEventListener('install', () => {
+// Service Worker Básico para ativar a instalação do PWA
+self.addEventListener("install", (e) => {
+  console.log("[Service Worker] Aplicativo Instalado!");
   self.skipWaiting();
 });
 
-self.addEventListener('activate', () => {
-  self.clients.claim();
+self.addEventListener("activate", (e) => {
+  console.log("[Service Worker] Ativado e pronto para rodar.");
 });
 
-self.addEventListener('fetch', (event) => {
-  // Passa as requisições direto sem interceptar com cache problemático
-  event.respondWith(fetch(event.request));
+self.addEventListener("fetch", (e) => {
+  // Por enquanto, apenas deixa a internet funcionar normalmente.
+  // No futuro, podemos adicionar cache aqui para o app funcionar sem internet.
 });
