@@ -659,7 +659,7 @@ export default function App() {
           {/* Container da Logo com Plaquinha Inteligente */}
           <div className="shrink-0 flex items-center justify-center p-1.5 rounded-lg border border-transparent dark:bg-slate-50 dark:border-slate-200 dark:shadow-sm transition-all">
             <img 
-              src="/LOGO GERAFORTE Original.png" 
+              src="/logo.png" 
               alt="Geraforte" 
               className="h-8 md:h-10 w-auto object-contain block" 
             />
