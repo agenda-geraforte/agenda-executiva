@@ -73,12 +73,13 @@ export default function AtaReuniao({ isOpen, onClose, recarregarAtas }) {
           scale: 2,
           useCORS: true,
           letterRendering: true,
-          scrollY: 0, // 2. CORREÇÃO: Força a captura a começar do eixo zero absoluto
+          scrollY: 0, 
         },
         jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
-        // 3. CORREÇÃO: Removido o 'avoid-all' para parar de gerar páginas em branco
-        pagebreak: { mode: ["css", "legacy"] }, 
+        // 👇 A MÁGICA ENTRA AQUI 👇
+        pagebreak: { mode: ["css", "legacy"], avoid: ['.evitar-quebra'] }, 
       };
+      
 
       const classeAntiga = elemento.className;
 
