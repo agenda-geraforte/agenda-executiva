@@ -109,7 +109,7 @@ export default function Login({ onLogin, isDarkMode, toggleTheme }) {
             {view === "update-password" && "Nova Senha"}
           </h1>
           <p className="text-sm text-slate-500">
-            {view === "login" && "Acesse sua agenda executiva"}
+            {view === "login" && "Acesse seu Planejador Executivo"}
             {view === "register" && "Preencha seus dados para começar"}
             {view === "recover" &&
               "Enviaremos um link de recuperação para seu e-mail"}
@@ -163,6 +163,10 @@ export default function Login({ onLogin, isDarkMode, toggleTheme }) {
               <Lock className="absolute left-3 top-3 w-5 h-5 text-slate-400" />
               <input
                 type="password"
+                // Substitua a linha antiga pela nova abaixo:
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleAuthAction();
+                }}
                 placeholder={
                   view === "update-password" ? "Digite a nova senha" : "Senha"
                 }
