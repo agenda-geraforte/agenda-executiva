@@ -1,6 +1,8 @@
-import { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import Login from "./Login";
 import AtaReuniao from "./AtaReuniao";
+import NotificationCenter from "./NotificationCenter";
+import ModalRecorrentes from "./ModalRecorrentes";
 import { supabase } from "./supabaseClient";
 import {
   FileText,
@@ -21,41 +23,9 @@ import {
   ChevronUp,
   ChevronDown,
   X,
+  Bell,
+  Repeat,
 } from "lucide-react";
-
-function evalMathExpr(expr) {
-  const s = expr.replace(/\s/g, "");
-  if (!s) return undefined;
-  let pos = 0;
-  function parseE() {
-    let v = parseT();
-    while (pos < s.length && (s[pos] === "+" || s[pos] === "-")) {
-      const op = s[pos++];
-      const r = parseT();
-      v = op === "+" ? v + r : v - r;
-    }
-    return v;
-  }
-  function parseT() {
-    let v = parseF();
-    while (pos < s.length && (s[pos] === "*" || s[pos] === "/" || s[pos] === "%")) {
-      const op = s[pos++];
-      const r = parseF();
-      if (op === "*") v *= r;
-      else if (op === "/") v /= r;
-      else v %= r;
-    }
-    return v;
-  }
-  function parseF() {
-    if (s[pos] === "(") { pos++; const v = parseE(); pos++; return v; }
-    if (s[pos] === "-") { pos++; return -parseF(); }
-    const start = pos;
-    while (pos < s.length && /[0-9.]/.test(s[pos])) pos++;
-    return parseFloat(s.slice(start, pos));
-  }
-  return parseE();
-}
 
 export default function App() {
   const [isSidebarExpanded, setIsSidebarExpanded] = useState(false);
@@ -64,33 +34,12 @@ export default function App() {
   );
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isAtaOpen, setIsAtaOpen] = useState(false);
+  const [isRecorrentesOpen, setIsRecorrentesOpen] = useState(false);
 
-  // === ADICIONE ESTE BLOCO AQUI ===
-  useEffect(() => {
-    // 1. Assim que o app abre, ele procura o "crachá" salvo no celular
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session) {
-        setIsAuthenticated(true);
-      }
-    });
-
-    // 2. Fica de olho nos bastidores (se a sessão expirar ou o usuário deslogar)
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      setIsAuthenticated(!!session);
-    });
-
-    return () => subscription.unsubscribe();
-  }, []);
-  // ================================
-
-  // --- LÓGICA DO TEMA REFEITA PARA SALVAR NO LOCALSTORAGE ---
   const [isDarkMode, setIsDarkMode] = useState(() => {
     const savedTheme = localStorage.getItem("theme");
     if (savedTheme === "dark") return true;
     if (savedTheme === "light") return false;
-    // Se não tiver nada salvo, pega a preferência do PC do usuário
     return window.matchMedia("(prefers-color-scheme: dark)").matches;
   });
 
@@ -111,7 +60,6 @@ export default function App() {
   }, [isDarkMode]);
 
   const toggleTheme = () => setIsDarkMode((prev) => !prev);
-  // --------------------------------------------------------
 
   const [isCalcOpen, setIsCalcOpen] = useState(false);
   const [calcTab, setCalcTab] = useState("datas");
@@ -128,6 +76,7 @@ export default function App() {
   const [activeMatchIndex, setActiveMatchIndex] = useState(0);
 
   const prevSearchQuery = useRef(searchQuery);
+  const lastTargetDay = useRef(null);
 
   const years = Array.from({ length: 2080 - 2024 + 1 }, (_, i) =>
     String(2024 + i)
@@ -156,20 +105,17 @@ export default function App() {
       dia: local.getDate(),
       ano: String(local.getFullYear()),
     };
-  }, []); // Calcula uma vez por sessão
+  }, []);
 
   const { mes: mesAtual, dia: diaAtual, ano: anoAtualStr } = hoje;
-
   const idDiaSelectedYear = `${selectedYear}-${mesAtual + 1}-${diaAtual}`;
 
   const [diasExpandidos, setDiasExpandidos] = useState([idDiaSelectedYear]);
-
   const [mesesVisiveis, setMesesVisiveis] = useState(() => {
     return Array.from({ length: Math.min(12, mesAtual + 2) }, (_, i) => i);
   });
-  // --- APAGADOR AUTOMÁTICO DA CALCULADORA ---
+
   useEffect(() => {
-    // Se a calculadora acabou de ser fechada (!isCalcOpen), a gente zera tudo
     if (!isCalcOpen) {
       setCalcTab("datas");
       setCalcExpressao("");
@@ -181,7 +127,6 @@ export default function App() {
       setResultadoData("");
     }
   }, [isCalcOpen]);
-  // ------------------------------------------
 
   useEffect(() => {
     if (selectedYear === anoAtualStr) {
@@ -198,7 +143,7 @@ export default function App() {
   const [tasksLoaded, setTasksLoaded] = useState(false);
   const [atas, setAtas] = useState([]);
 
-  const fetchTasks = useCallback(async () => {
+  const fetchTasks = async () => {
     const { data, error } = await supabase.from("tarefas").select("*");
     if (error) {
       console.error("Erro ao buscar tarefas:", error);
@@ -208,7 +153,6 @@ export default function App() {
 
     const idDiaHoje = `${anoAtualStr}-${mesAtual + 1}-${diaAtual}`;
     const hojeDate = new Date(Number(anoAtualStr), mesAtual, diaAtual);
-
     let precisouAtualizarNuvem = false;
     const updatesNoBanco = [];
 
@@ -216,12 +160,14 @@ export default function App() {
       let updatedTask = { ...task };
       let mudou = false;
 
-      const [tAno, tMes, tDia] = task.day_id.split("-").map(Number);
-      const taskDate = new Date(tAno, tMes - 1, tDia);
+      if (task.day_id !== "RECORRENTE") {
+        const [tAno, tMes, tDia] = task.day_id.split("-").map(Number);
+        const taskDate = new Date(tAno, tMes - 1, tDia);
 
-      if (!task.completed && taskDate < hojeDate) {
-        updatedTask.day_id = idDiaHoje;
-        mudou = true;
+        if (!task.completed && taskDate < hojeDate) {
+          updatedTask.day_id = idDiaHoje;
+          mudou = true;
+        }
       }
 
       if (!task.completed && task.created_at) {
@@ -261,21 +207,16 @@ export default function App() {
           .eq("id", item.id);
       }
     }
-  }, [anoAtualStr, mesAtual, diaAtual]);
+  };
 
   const carregarAtas = async () => {
     const { data, error } = await supabase
-      .from("atas") // ou o nome da sua tabela
+      .from("atas")
       .select("*")
       .order("created_at", { ascending: false });
 
     if (data) setAtas(data);
-
-    if (error) {
-      console.error("Erro ao buscar atas:", error);
-      return;
-    }
-    setAtas(data);
+    if (error) console.error("Erro ao buscar atas:", error);
   };
 
   const handleDownloadAta = async (caminhoStorage, nomeArquivo) => {
@@ -300,17 +241,13 @@ export default function App() {
 
   useEffect(() => {
     if (!isAuthenticated) return;
-
-    // Função para buscar dados
     const carregarDadosIniciais = async () => {
-      // Pequeno atraso para garantir que o cliente Supabase processou o login
       await new Promise((resolve) => setTimeout(resolve, 500));
       fetchTasks();
       carregarAtas();
     };
-
     carregarDadosIniciais();
-  }, [isAuthenticated, fetchTasks]);
+  }, [isAuthenticated]);
 
   const matches = useMemo(() => {
     if (!searchQuery.trim()) return [];
@@ -319,38 +256,60 @@ export default function App() {
         t.description.toLowerCase().includes(searchQuery.toLowerCase())
       )
       .sort((a, b) => {
+        if (a.day_id === "RECORRENTE") return 1;
+        if (b.day_id === "RECORRENTE") return -1;
         const [anoA, mesA, diaA] = a.day_id.split("-").map(Number);
         const [anoB, mesB, diaB] = b.day_id.split("-").map(Number);
-        if (anoA !== anoB) return anoA - anoB;
-        if (mesA !== mesB) return mesA - mesB;
-        return diaA - diaB;
+
+        if (anoA !== anoB) return anoB - anoA;
+        if (mesA !== mesB) return mesB - mesA;
+        return diaB - diaA;
       });
   }, [tasks, searchQuery]);
 
   const tasksByDay = useMemo(() => {
     const groups = {};
     tasks.forEach((task) => {
+      if (task.day_id === "RECORRENTE") return;
       if (!groups[task.day_id]) groups[task.day_id] = [];
       groups[task.day_id].push(task);
     });
 
-    // OTIMIZAÇÃO: Ordena todas as tarefas UMA única vez na memória, poupando a renderização visual
     for (const dia in groups) {
       groups[dia].sort((a, b) => {
         if (a.completed !== b.completed) return a.completed ? 1 : -1;
         return a.priority - b.priority;
       });
     }
-
     return groups;
   }, [tasks]);
 
   useEffect(() => {
+    setActiveMatchIndex(0);
+  }, [searchQuery]);
+
+  useEffect(() => {
     if (matches.length > 0 && matches[activeMatchIndex]) {
       const targetTask = matches[activeMatchIndex];
-      const [targetYear] = targetTask.day_id.split("-");
+      if (targetTask.day_id === "RECORRENTE") return;
+
+      lastTargetDay.current = targetTask.day_id;
+
+      const [targetYear, targetMonthStr] = targetTask.day_id.split("-");
+      const targetMonthIndex = Number(targetMonthStr) - 1;
 
       if (targetYear !== selectedYear) setSelectedYear(targetYear);
+
+      setMesesVisiveis((prev) => {
+        if (!prev.includes(targetMonthIndex)) {
+          return Array.from(
+            { length: Math.max(...prev, targetMonthIndex) + 1 },
+            (_, i) => i
+          );
+        }
+        return prev;
+      });
+
       if (!diasExpandidos.includes(targetTask.day_id)) {
         setDiasExpandidos((prev) => [...prev, targetTask.day_id]);
       }
@@ -364,31 +323,53 @@ export default function App() {
   }, [activeMatchIndex, matches, selectedYear, diasExpandidos]);
 
   useEffect(() => {
-    setActiveMatchIndex(matches.length > 0 ? matches.length - 1 : 0);
-  }, [searchQuery, matches.length]);
-
-  useEffect(() => {
     if (prevSearchQuery.current !== "" && searchQuery === "") {
-      if (selectedYear === anoAtualStr) {
-        setMesesVisiveis(
-          Array.from({ length: Math.min(12, mesAtual + 2) }, (_, i) => i)
-        );
-        setDiasExpandidos([idDiaSelectedYear]);
+      setDiasExpandidos([idDiaSelectedYear]);
+
+      if (lastTargetDay.current) {
+        const targetId = lastTargetDay.current;
         setTimeout(() => {
-          const elementoHoje = document.getElementById(
-            `dia-${idDiaSelectedYear}`
-          );
-          if (elementoHoje) {
-            elementoHoje.scrollIntoView({
-              behavior: "smooth",
-              block: "center",
-            });
+          const elemento = document.getElementById(`dia-${targetId}`);
+          if (elemento) {
+            // AJUSTE: Ancoragem agora foca no 'start' (topo da data)
+            elemento.scrollIntoView({ behavior: "auto", block: "start" });
           }
-        }, 300);
+        }, 50);
       }
     }
     prevSearchQuery.current = searchQuery;
-  }, [searchQuery, selectedYear, anoAtualStr, mesAtual, idDiaSelectedYear]);
+  }, [searchQuery, idDiaSelectedYear]);
+
+  const irParaHoje = (e) => {
+    if (e) e.stopPropagation();
+
+    setSearchQuery("");
+    setIsSearchOpen(false);
+    setIsCalcOpen(false);
+    setIsSidebarExpanded(false);
+
+    const idDiaHoje = `${anoAtualStr}-${mesAtual + 1}-${diaAtual}`;
+
+    if (selectedYear !== anoAtualStr) {
+      setSelectedYear(anoAtualStr);
+    }
+
+    setMesesVisiveis(
+      Array.from({ length: Math.min(12, mesAtual + 2) }, (_, i) => i)
+    );
+
+    if (!diasExpandidos.includes(idDiaHoje)) {
+      setDiasExpandidos((prev) => [...prev, idDiaHoje]);
+    }
+
+    setTimeout(() => {
+      const elementoHoje = document.getElementById(`dia-${idDiaHoje}`);
+      if (elementoHoje) {
+        // AJUSTE: 'Hoje' agora foca no 'start' (topo da data)
+        elementoHoje.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+    }, 300);
+  };
 
   const highlightText = (text, query, taskId) => {
     if (!query.trim()) return text;
@@ -420,7 +401,7 @@ export default function App() {
     if (calcTab === "padrao") {
       try {
         if (calcExpressao) {
-          const res = evalMathExpr(calcExpressao);
+          const res = new Function("return " + calcExpressao)();
           setCalcResultado(res !== undefined && !isNaN(res) ? res : "...");
         } else setCalcResultado("");
       } catch (e) {
@@ -465,7 +446,8 @@ export default function App() {
           `dia-${idDiaSelectedYear}`
         );
         if (elementoHoje) {
-          elementoHoje.scrollIntoView({ behavior: "smooth", block: "center" });
+          // AJUSTE: Scroll Inicial foca no 'start'
+          elementoHoje.scrollIntoView({ behavior: "smooth", block: "start" });
           setInitialScrollDone(true);
         }
       }, 300);
@@ -500,20 +482,19 @@ export default function App() {
             setTasks((prev) => {
               const currentTask = prev.find((t) => t.id === payload.new.id);
 
-              // OTIMIZAÇÃO O ANTI-ECO: Se a tarefa recebida da nuvem for idêntica à que você
-              // acabou de editar localmente, nós abortamos a atualização do React.
               if (
                 currentTask &&
                 currentTask.completed === payload.new.completed &&
                 currentTask.priority === payload.new.priority &&
                 currentTask.description === payload.new.description &&
                 currentTask.type === payload.new.type &&
-                currentTask.eisenhower === payload.new.eisenhower
+                currentTask.eisenhower === payload.new.eisenhower &&
+                currentTask.has_notification === payload.new.has_notification &&
+                currentTask.notification_date === payload.new.notification_date
               ) {
-                return prev; // Retorna a tela como está e não congela nada!
+                return prev;
               }
 
-              // Se realmente for uma atualização de outro dispositivo, ele atualiza
               return prev.map((t) =>
                 t.id === payload.new.id
                   ? { ...payload.new, isEditing: t.isEditing }
@@ -535,8 +516,8 @@ export default function App() {
         (payload) => {
           setAtas((prev) => {
             const existe = prev.find((item) => item.id === payload.new.id);
-            if (existe) return prev; // Se já existe, não faz nada!
-            return [payload.new, ...prev]; // Só adiciona se for novo
+            if (existe) return prev;
+            return [payload.new, ...prev];
           });
         }
       )
@@ -570,6 +551,9 @@ export default function App() {
       type: "S",
       description: "",
       eisenhower: "P - importante / não urgente",
+      has_notification: false,
+      notification_date: null,
+      is_recurring: "none",
     };
 
     const { data, error } = await supabase
@@ -579,17 +563,35 @@ export default function App() {
     if (error) {
       console.error("Erro ao inserir:", error);
     } else if (data) {
-      setTasks([...tasks, { ...data[0], isEditing: true }]);
+      setTasks((prev) => [...prev, { ...data[0], isEditing: true }]);
+    }
+  };
+
+  const handleAddRecurringTask = async (description, diasSelecionados) => {
+    const newTask = {
+      day_id: "RECORRENTE",
+      completed: false,
+      priority: 3,
+      type: "S",
+      description: description,
+      eisenhower: "P - importante / não urgente",
+      has_notification: true,
+      notification_date: null,
+      is_recurring: diasSelecionados,
+    };
+
+    const { data, error } = await supabase
+      .from("tarefas")
+      .insert([newTask])
+      .select();
+    if (error) {
+      console.error("Erro ao inserir rotina:", error);
+    } else if (data) {
+      setTasks((prev) => [...prev, { ...data[0], isEditing: false }]);
     }
   };
 
   const handleUpdateTask = async (id, updates, saveToCloud = true) => {
-    // RASTREADOR: Vai te mostrar no console (F12) se o lápis foi clicado
-    console.log(
-      `✏️ Atualizando tarefa [${id}] - Nuvem: ${saveToCloud}`,
-      updates
-    );
-
     setTasks((prevTasks) =>
       prevTasks.map((task) => (task.id === id ? { ...task, ...updates } : task))
     );
@@ -618,7 +620,6 @@ export default function App() {
     else setDiasExpandidos([...diasExpandidos, idDia]);
   };
 
-  // PASSANDO AS FUNÇÕES DO TEMA PARA A TELA DE LOGIN
   if (!isAuthenticated) {
     return (
       <Login
@@ -634,6 +635,7 @@ export default function App() {
         .map((_, index) => index)
         .filter((indexMes) => {
           return matches.some((m) => {
+            if (m.day_id === "RECORRENTE") return false;
             const [ano, mes] = m.day_id.split("-").map(Number);
             return ano === Number(selectedYear) && mes === indexMes + 1;
           });
@@ -643,153 +645,190 @@ export default function App() {
   return (
     <div className="h-screen flex flex-col overflow-hidden bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-50">
       <header
-        onClick={() => setIsSidebarExpanded(false)}
-        className="h-16 shrink-0 flex items-center justify-between px-3 md:px-6 border-b z-20 bg-white dark:bg-slate-950 border-slate-200 dark:border-slate-800 transition-colors relative"
+        onClick={() => {
+          setIsSidebarExpanded(false);
+          setIsCalcOpen(false);
+          setIsSearchOpen(false);
+          setSearchQuery("");
+        }}
+        className="shrink-0 flex flex-col z-20 bg-white dark:bg-slate-950 border-b border-slate-200 dark:border-slate-800 transition-colors relative"
       >
-        <div className="flex items-center gap-2 md:gap-4 flex-1">
-          <button
-            onClick={() => setIsAtaOpen(true)}
-            className="p-1.5 md:p-2 rounded-lg cursor-pointer hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors"
-          >
-            <FileText className="w-5 h-5 md:w-5 md:h-5 text-teal-600 dark:text-teal-500" />
-          </button>
+        <div className="flex items-center justify-center md:justify-start px-4 py-3 border-b border-slate-100 dark:border-slate-800/50 bg-slate-50/50 dark:bg-slate-900/30">
+          {/* A IMAGEM ENTRA DIRETO AQUI, SEM A DIV QUADRADA EM VOLTA */}
+          <img
+            src="/logo.png"
+            alt="Geraforte"
+            className="h-7 md:h-9 w-auto object-contain shrink-0 dark:bg-slate-50 dark:p-1.5 dark:rounded transition-colors shadow-sm"
+          />
 
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              setIsCalcOpen(!isCalcOpen); // Alterna o estado da calc
-              setIsSearchOpen(false); // Fecha a busca se estiver aberta
-            }}
-            className={`p-1.5 md:p-2 rounded-lg cursor-pointer transition-colors ${
-              isCalcOpen
-                ? "bg-teal-100 dark:bg-teal-900/40"
-                : "hover:bg-slate-200 dark:hover:bg-slate-800"
-            }`}
-          >
-            <Calculator className="w-5 h-5 md:w-5 md:h-5 text-teal-600 dark:text-teal-500" />
-          </button>
+          <div className="flex flex-col">
+            <h1 className="text-xl md:text-2xl font-black text-slate-800 dark:text-slate-100 leading-none tracking-tight">
+              PLANEJADOR
+            </h1>
+            <span className="text-xs font-bold text-teal-600 dark:text-teal-500 uppercase tracking-widest leading-none mt-1">
+              Executivo
+            </span>
+          </div>
+        </div>
 
-          <div className="flex items-center gap-1 md:gap-2 transition-all duration-300">
+        <div className="h-14 flex items-center justify-between px-3 md:px-6">
+          <div className="flex items-center gap-1 md:gap-2 flex-1 search-wrapper relative">
             <button
               onClick={(e) => {
                 e.stopPropagation();
-                setIsSearchOpen(!isSearchOpen);
-                setIsCalcOpen(false); // Fecha a calc se estiver aberta
+                setIsAtaOpen(true);
+                setIsSearchOpen(false);
+                setSearchQuery("");
               }}
-              className={`p-1.5 md:p-2 rounded-lg cursor-pointer transition-colors ${
-                isSearchOpen
+              className="p-2 rounded-lg cursor-pointer hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors"
+            >
+              <FileText className="w-5 h-5 text-teal-600 dark:text-teal-500" />
+            </button>
+
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setIsCalcOpen(!isCalcOpen);
+                setIsSearchOpen(false);
+                setSearchQuery("");
+              }}
+              className={`p-2 rounded-lg cursor-pointer transition-colors ${
+                isCalcOpen
                   ? "bg-teal-100 dark:bg-teal-900/40"
                   : "hover:bg-slate-200 dark:hover:bg-slate-800"
               }`}
             >
-              <Search className="w-5 h-5 md:w-5 md:h-5 text-teal-600 dark:text-teal-500" />
+              <Calculator className="w-5 h-5 text-teal-600 dark:text-teal-500" />
             </button>
 
-            {isSearchOpen && (
-              <div
-                onClick={(e) => e.stopPropagation()}
-                className="flex items-center gap-1 md:gap-2 bg-slate-100 dark:bg-slate-800 px-2 md:px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 transition-all absolute md:static left-16 top-14 md:top-auto z-30 shadow-lg md:shadow-none w-max"
+            <div className="flex items-center gap-1 transition-all duration-300 relative">
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setIsSearchOpen(!isSearchOpen);
+                  setIsCalcOpen(false);
+                  if (isSearchOpen) setSearchQuery("");
+                }}
+                className={`p-2 rounded-lg cursor-pointer transition-colors ${
+                  isSearchOpen
+                    ? "bg-teal-100 dark:bg-teal-900/40"
+                    : "hover:bg-slate-200 dark:hover:bg-slate-800"
+                }`}
               >
-                <input
-                  type="text"
-                  placeholder="Pesquisar..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="bg-transparent outline-none text-sm w-32 sm:w-40 md:w-64 text-slate-800 dark:text-slate-100 placeholder-slate-400"
-                  autoFocus
-                />
-                {searchQuery && (
-                  <div className="flex items-center gap-1 md:gap-1.5 border-l border-slate-300 dark:border-slate-600 pl-1 md:pl-2 text-xs text-slate-500">
-                    <span className="min-w-[20px] text-center">
-                      {matches.length > 0 ? activeMatchIndex + 1 : 0}/
-                      {matches.length}
-                    </span>
-                    <button
-                      onClick={() =>
-                        setActiveMatchIndex(
-                          (prev) => (prev - 1 + matches.length) % matches.length
-                        )
-                      }
-                      className="p-0.5 rounded hover:bg-slate-200 dark:hover:bg-slate-700 cursor-pointer"
-                    >
-                      <ChevronUp className="w-4 h-4" />
-                    </button>
-                    <button
-                      onClick={() =>
-                        setActiveMatchIndex(
-                          (prev) => (prev + 1) % matches.length
-                        )
-                      }
-                      className="p-0.5 rounded hover:bg-slate-200 dark:hover:bg-slate-700 cursor-pointer"
-                    >
-                      <ChevronDown className="w-4 h-4" />
-                    </button>
-                  </div>
-                )}
-                <button
-                  onClick={() => {
-                    setSearchQuery("");
-                    setIsSearchOpen(false);
-                  }}
-                  className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer ml-1"
+                <Search className="w-5 h-5 text-teal-600 dark:text-teal-500" />
+              </button>
+
+              {isSearchOpen && (
+                <div
+                  onClick={(e) => e.stopPropagation()}
+                  className="flex items-center gap-2 bg-slate-100 dark:bg-slate-800 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 absolute top-full left-0 mt-2 z-50 shadow-xl w-[280px]"
                 >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-            )}
+                  <input
+                    type="text"
+                    placeholder="Pesquisar..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="bg-transparent outline-none text-sm w-full text-slate-800 dark:text-slate-100 placeholder-slate-400"
+                    autoFocus
+                  />
+                  {searchQuery && (
+                    <div className="flex items-center gap-1 border-l border-slate-300 dark:border-slate-600 pl-2 text-xs text-slate-500 shrink-0">
+                      <span className="min-w-[20px] text-center">
+                        {matches.length > 0 ? activeMatchIndex + 1 : 0}/
+                        {matches.length}
+                      </span>
+                      <button
+                        onClick={() =>
+                          setActiveMatchIndex(
+                            (prev) =>
+                              (prev - 1 + matches.length) % matches.length
+                          )
+                        }
+                        className="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700 cursor-pointer"
+                      >
+                        <ChevronUp className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() =>
+                          setActiveMatchIndex(
+                            (prev) => (prev + 1) % matches.length
+                          )
+                        }
+                        className="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700 cursor-pointer"
+                      >
+                        <ChevronDown className="w-4 h-4" />
+                      </button>
+                    </div>
+                  )}
+                  <button
+                    onClick={() => {
+                      setSearchQuery("");
+                      setIsSearchOpen(false);
+                    }}
+                    className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer ml-1 shrink-0"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
-        </div>
 
-        <div className="flex items-center gap-2 md:gap-4">
-          <select
-            value={selectedYear}
-            onChange={(e) => setSelectedYear(e.target.value)}
-            className="px-2 py-1 md:px-3 md:py-1.5 rounded-lg border outline-none text-sm md:text-base font-medium cursor-pointer transition-colors bg-slate-50 dark:bg-slate-900 border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 focus:border-teal-600 dark:focus:border-teal-500"
-          >
-            {years.map((year) => (
-              <option key={year} value={year}>
-                {year}
-              </option>
-            ))}
-          </select>
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              toggleTheme();
-            }}
-            className="p-1.5 md:p-2 rounded-lg cursor-pointer hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors"
-          >
-            {isDarkMode ? (
-              <Sun className="w-4 h-4 md:w-5 md:h-5 text-amber-400" />
-            ) : (
-              <Moon className="w-4 h-4 md:w-5 md:h-5 text-teal-600" />
-            )}
-          </button>
-          <div className="w-px h-5 md:h-6 mx-0.5 md:mx-1 bg-slate-300 dark:bg-slate-700"></div>
-          <button
-            onClick={async (e) => {
-              e.stopPropagation();
-
-              // 1. Desloga oficialmente do Supabase
-              await supabase.auth.signOut();
-
-              // 2. Faz a "lavagem cerebral" nos estados do App
-              setIsCalcOpen(false);
-              setIsSearchOpen(false);
-              setIsSidebarExpanded(false);
-              setIsAuthenticated(false);
-              setInitialScrollDone(false); // Permite o scroll na próxima vez
-              setSelectedYear(anoAtualStr); // Volta para o ano atual
-              setDiasExpandidos([`${anoAtualStr}-${mesAtual + 1}-${diaAtual}`]); // Deixa só o dia de hoje aberto
-              setSearchQuery(""); // Limpa pesquisas
-              setTasks([]); // Limpa as tarefas da tela
-              setAtas([]); // Limpa os documentos
-            }}
-            className="p-1.5 md:p-2 rounded-lg cursor-pointer group hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors"
-            title="Sair do Sistema"
-          >
-            <LogOut className="w-4 h-4 md:w-5 md:h-5 text-slate-600 dark:text-slate-400 group-hover:text-red-600 dark:group-hover:text-red-400 transition-colors" />
-          </button>
+          <div className="flex items-center gap-2 md:gap-4 shrink-0">
+            <button
+              onClick={irParaHoje}
+              className="px-3 py-1.5 rounded-lg border-2 border-teal-600 dark:border-teal-500 text-teal-700 dark:text-teal-400 hover:bg-teal-50 dark:hover:bg-teal-900/30 text-xs md:text-sm font-bold cursor-pointer transition-colors shadow-sm"
+            >
+              Hoje
+            </button>
+            <select
+              value={selectedYear}
+              onChange={(e) => setSelectedYear(e.target.value)}
+              className="px-2 py-1.5 rounded-lg border outline-none text-sm font-medium cursor-pointer transition-colors bg-slate-50 dark:bg-slate-900 border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 focus:border-teal-600 dark:focus:border-teal-500"
+            >
+              {years.map((year) => (
+                <option key={year} value={year}>
+                  {year}
+                </option>
+              ))}
+            </select>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                toggleTheme();
+              }}
+              className="p-2 rounded-lg cursor-pointer hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors"
+            >
+              {isDarkMode ? (
+                <Sun className="w-5 h-5 text-amber-400" />
+              ) : (
+                <Moon className="w-5 h-5 text-teal-600" />
+              )}
+            </button>
+            <div className="w-px h-6 mx-0.5 md:mx-1 bg-slate-300 dark:bg-slate-700"></div>
+            <button
+              onClick={async (e) => {
+                e.stopPropagation();
+                await supabase.auth.signOut();
+                setIsCalcOpen(false);
+                setIsSearchOpen(false);
+                setIsSidebarExpanded(false);
+                setIsAuthenticated(false);
+                setInitialScrollDone(false);
+                setSelectedYear(anoAtualStr);
+                setDiasExpandidos([
+                  `${anoAtualStr}-${mesAtual + 1}-${diaAtual}`,
+                ]);
+                setSearchQuery("");
+                setTasks([]);
+                setAtas([]);
+              }}
+              className="p-2 rounded-lg cursor-pointer group hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors"
+              title="Sair do Sistema"
+            >
+              <LogOut className="w-5 h-5 text-slate-600 dark:text-slate-400 group-hover:text-red-600 dark:group-hover:text-red-400 transition-colors" />
+            </button>
+          </div>
         </div>
       </header>
 
@@ -800,7 +839,10 @@ export default function App() {
             : "grid-rows-[0fr] opacity-0 border-transparent pointer-events-none"
         }`}
       >
-        <div className="overflow-hidden relative">
+        <div
+          className="overflow-hidden relative"
+          onClick={(e) => e.stopPropagation()}
+        >
           <div className="absolute -top-2 left-[3.5rem] md:left-[5.5rem] w-4 h-4 bg-slate-100 dark:bg-slate-900 transform rotate-45 border-t border-l border-slate-200 dark:border-slate-800 z-20"></div>
           <div className="p-4 md:p-6 max-w-3xl mx-auto flex flex-col gap-4">
             <div className="flex flex-col md:flex-row bg-slate-200 dark:bg-slate-800 p-1 rounded-lg w-max mx-auto shadow-sm">
@@ -923,46 +965,77 @@ export default function App() {
             <ChevronRight className="w-4 h-4" />
           </button>
 
-          <div className="flex-1 overflow-y-auto p-3 space-y-2 mt-12">
-            {atas.length === 0 ? (
-              <div className="text-xs text-slate-400 dark:text-slate-500 italic text-center p-4">
-                {isSidebarExpanded && "Nenhuma ata encontrada."}
-              </div>
-            ) : (
-              atas.map((ata) => (
+          <div className="flex-1 flex flex-col overflow-hidden mt-12 px-3 pb-3">
+            <div className="shrink-0 flex flex-col">
+              <button
+                onClick={() => {
+                  if (!isSidebarExpanded) setIsSidebarExpanded(true);
+                  else setIsRecorrentesOpen(true);
+                }}
+                className={`w-full flex items-center rounded-lg cursor-pointer bg-teal-50 dark:bg-teal-900/20 hover:bg-teal-100 dark:hover:bg-teal-900/40 border border-teal-200 dark:border-teal-800/50 transition-colors group shrink-0 ${
+                  isSidebarExpanded
+                    ? "p-3 justify-start"
+                    : "p-2.5 justify-center"
+                }`}
+              >
+                <Repeat className="w-6 h-6 shrink-0 text-teal-600 dark:text-teal-500 group-hover:rotate-180 transition-transform duration-500" />
                 <div
-                  key={ata.id}
-                  /* CORREÇÃO DO CLIQUE: Se estiver fechado, só expande. Se estiver aberto, baixa. */
-                  onClick={() => {
-                    if (!isSidebarExpanded) {
-                      setIsSidebarExpanded(true);
-                    } else {
-                      handleDownloadAta(ata.caminho_storage, ata.nome);
-                    }
-                  }}
-                  className="flex items-center p-3 rounded-lg cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800/60 transition-colors group"
-                  title={`Clique para baixar: ${ata.assunto}`}
+                  className={`overflow-hidden flex-shrink-0 transition-all duration-300 ${
+                    isSidebarExpanded
+                      ? "w-52 ml-3 opacity-100"
+                      : "w-0 ml-0 opacity-0"
+                  }`}
                 >
-                  <FileCheck className="w-5 h-5 shrink-0 text-teal-600 dark:text-teal-500 group-hover:scale-110 transition-transform duration-200" />
-                  <div
-                    className={`overflow-hidden flex-shrink-0 transition-all duration-300 ${
-                      isSidebarExpanded
-                        ? "w-52 ml-3 opacity-100"
-                        : "w-0 ml-0 opacity-0"
-                    }`}
-                  >
-                    <span className="block w-52 font-semibold text-sm whitespace-normal break-all leading-snug text-slate-700 dark:text-slate-200 truncate">
-                      ATA REUNIÃO - {ata.assunto} {/* CORREÇÃO DO PREFIXO */}
-                    </span>
-                    <span className="block text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">
-                      {ata.data_reuniao
-                        ? ata.data_reuniao.split("-").reverse().join("/")
-                        : "---"}
-                    </span>
-                  </div>
+                  <span className="block font-bold text-sm whitespace-nowrap text-teal-700 dark:text-teal-400">
+                    Rotinas / Recorrentes
+                  </span>
                 </div>
-              ))
-            )}
+              </button>
+
+              <div className="w-full h-px bg-slate-200 dark:bg-slate-800 my-3 shrink-0"></div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto space-y-2 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:bg-slate-300 dark:[&::-webkit-scrollbar-thumb]:bg-slate-700 [&::-webkit-scrollbar-track]:bg-transparent pr-1">
+              {atas.length === 0 ? (
+                <div className="text-xs text-slate-400 dark:text-slate-500 italic text-center p-4 whitespace-normal">
+                  {isSidebarExpanded && "Nenhuma ata encontrada."}
+                </div>
+              ) : (
+                atas.map((ata) => (
+                  <div
+                    key={ata.id}
+                    onClick={() => {
+                      if (!isSidebarExpanded) setIsSidebarExpanded(true);
+                      else handleDownloadAta(ata.caminho_storage, ata.nome);
+                    }}
+                    className={`flex items-center rounded-lg cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800/60 transition-colors group shrink-0 ${
+                      isSidebarExpanded
+                        ? "p-3 justify-start"
+                        : "p-2.5 justify-center"
+                    }`}
+                    title={`Clique para baixar: ${ata.assunto}`}
+                  >
+                    <FileCheck className="w-6 h-6 shrink-0 text-teal-600 dark:text-teal-500 group-hover:scale-110 transition-transform duration-200" />
+                    <div
+                      className={`overflow-hidden flex-shrink-0 transition-all duration-300 ${
+                        isSidebarExpanded
+                          ? "w-52 ml-3 opacity-100"
+                          : "w-0 ml-0 opacity-0"
+                      }`}
+                    >
+                      <span className="block w-52 font-semibold text-sm whitespace-nowrap truncate text-slate-700 dark:text-slate-200">
+                        ATA REUNIÃO - {ata.assunto}
+                      </span>
+                      <span className="block text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">
+                        {ata.data_reuniao
+                          ? ata.data_reuniao.split("-").reverse().join("/")
+                          : "---"}
+                      </span>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
           </div>
         </aside>
 
@@ -979,10 +1052,10 @@ export default function App() {
             setIsSidebarExpanded(false);
             setIsCalcOpen(false);
             setIsSearchOpen(false);
+            setSearchQuery("");
           }}
           className="flex-1 overflow-y-auto relative bg-slate-50 dark:bg-slate-950 transition-colors"
         >
-          {/* CORREÇÃO DO ALINHAMENTO: Substituído max-w-[1400px] mx-auto por pl-[40px] */}
           <div className="w-full pl-[40px] pr-4 md:pr-8">
             {mesesParaRenderizar.map((indexMes) => {
               const nomeMes = mesesCompletos[indexMes];
@@ -1011,7 +1084,6 @@ export default function App() {
 
               return (
                 <div key={`${selectedYear}-${nomeMes}`} className="relative">
-                  {/* Cabeçalho do mês alinhado ao layout novo */}
                   <div className="sticky top-0 z-10 py-2 md:py-3 border-b shadow-sm backdrop-blur-md font-bold text-base md:text-lg tracking-wide uppercase bg-slate-50/90 dark:bg-slate-950/90 border-slate-200 dark:border-slate-800 text-teal-700 dark:text-teal-500 transition-colors">
                     {nomeMes} {selectedYear}
                   </div>
@@ -1020,32 +1092,53 @@ export default function App() {
                     {diasRenderizaveis.map((dia) => {
                       const idDia = `${selectedYear}-${indexMes + 1}-${dia}`;
                       const isDiaAberto = diasExpandidos.includes(idDia);
-
-                      // OTIMIZAÇÃO: Substitua tudo aquilo por APENAS esta linha abaixo:
                       const tarefasDoDia = tasksByDay[idDia] || [];
+
+                      const diaFormatadoBusca = `${selectedYear}-${String(
+                        indexMes + 1
+                      ).padStart(2, "0")}-${String(dia).padStart(2, "0")}`;
+
+                      const temAlerta = tasks.some(
+                        (t) =>
+                          t.has_notification &&
+                          t.notification_date === diaFormatadoBusca &&
+                          !t.completed
+                      );
+
                       return (
                         <div
                           key={idDia}
                           id={`dia-${idDia}`}
-                          className="flex flex-col"
+                          // AJUSTE: scroll-mt-16 para não esconder a data embaixo do mês
+                          className="flex flex-col scroll-mt-16"
                         >
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
                               toggleDia(idDia);
                             }}
-                            className="w-max flex items-center gap-2 md:gap-3 py-2 pr-4 font-bold text-base md:text-lg cursor-pointer text-slate-700 dark:text-slate-300 hover:text-teal-600 dark:hover:text-teal-400 transition-colors"
+                            className={`w-max flex items-center gap-2 md:gap-3 py-2 pr-4 font-bold text-base md:text-lg cursor-pointer transition-colors ${
+                              temAlerta
+                                ? "text-amber-500 dark:text-amber-400"
+                                : "text-slate-700 dark:text-slate-300 hover:text-teal-600 dark:hover:text-teal-400"
+                            }`}
                           >
                             <ChevronRight
-                              className={`w-5 h-5 text-slate-400 transition-transform duration-300 ${
-                                isDiaAberto
-                                  ? "rotate-90 text-teal-500 dark:text-teal-500"
-                                  : ""
+                              className={`w-5 h-5 transition-transform duration-300 ${
+                                isDiaAberto ? "rotate-90" : ""
+                              } ${
+                                temAlerta
+                                  ? "text-amber-500 dark:text-amber-400"
+                                  : "text-slate-400"
                               }`}
                             />
                             {`${dia < 10 ? "0" + dia : dia}/${
                               indexMes < 9 ? "0" + (indexMes + 1) : indexMes + 1
                             }/${selectedYear}`}
+
+                            {temAlerta && (
+                              <Bell className="w-4 h-4 ml-1 opacity-80" />
+                            )}
                           </button>
 
                           <div
@@ -1076,6 +1169,9 @@ export default function App() {
                                         <th className="p-3 w-56">
                                           Matriz Eisenhower
                                         </th>
+                                        <th className="p-3 w-24 text-center">
+                                          Alerta
+                                        </th>
                                         <th className="p-3 w-20 text-center">
                                           Ações
                                         </th>
@@ -1086,6 +1182,7 @@ export default function App() {
                                         <tr
                                           key={task.id}
                                           id={`task-${task.id}`}
+                                          onClick={(e) => e.stopPropagation()}
                                           className={`block md:table-row transition-all duration-150 border border-slate-200 dark:border-slate-800 md:border-none rounded-xl mb-4 md:mb-0 p-2 md:p-0 shadow-sm md:shadow-none bg-white dark:bg-slate-900/40 md:bg-transparent ${
                                             task.completed
                                               ? "opacity-60 md:bg-slate-100/60 md:dark:bg-slate-800/20"
@@ -1129,10 +1226,7 @@ export default function App() {
                                               onClick={(e) =>
                                                 e.stopPropagation()
                                               }
-                                              disabled={
-                                                task.completed ||
-                                                !task.isEditing
-                                              }
+                                              disabled={task.completed}
                                               value={task.priority}
                                               onChange={(e) =>
                                                 handleUpdateTask(
@@ -1142,7 +1236,7 @@ export default function App() {
                                                       e.target.value
                                                     ),
                                                   },
-                                                  true
+                                                  false
                                                 )
                                               }
                                               className={`w-auto md:w-full text-center text-sm font-black p-1.5 md:p-1 rounded bg-slate-100 dark:bg-slate-800 border-none outline-none cursor-pointer transition-colors ${
@@ -1167,16 +1261,13 @@ export default function App() {
                                               onClick={(e) =>
                                                 e.stopPropagation()
                                               }
-                                              disabled={
-                                                task.completed ||
-                                                !task.isEditing
-                                              }
+                                              disabled={task.completed}
                                               value={task.type}
                                               onChange={(e) =>
                                                 handleUpdateTask(
                                                   task.id,
                                                   { type: e.target.value },
-                                                  true
+                                                  false
                                                 )
                                               }
                                               className="w-auto md:w-full text-center text-xs font-bold p-1.5 md:p-1 rounded bg-slate-100 dark:bg-slate-800 border-none outline-none cursor-pointer text-slate-700 dark:text-slate-300"
@@ -1200,23 +1291,76 @@ export default function App() {
                                                   task.description || ""
                                                 }
                                                 onBlur={(e) => {
-    // BLINDAGEM: Garante que "undefined" da nuvem e "" do input sejam tratados como iguais
-    const currentDesc = task.description || "";
-    if (e.target.value !== currentDesc) {
-      handleUpdateTask(task.id, { description: e.target.value }, true);
-    }
-  }}
-                                                onKeyDown={(e) =>
-  e.key === "Enter" &&
-  handleUpdateTask(
-    task.id,
-    {
-      description: e.target.value,
-      isEditing: false,
-    },
-    true
-  )
-}
+                                                  const value =
+                                                    e.target.value.trim();
+
+                                                  if (value === "") {
+                                                    handleDeleteTask(task.id);
+                                                  } else {
+                                                    const currentDesc =
+                                                      task.description || "";
+                                                    if (value !== currentDesc) {
+                                                      handleUpdateTask(
+                                                        task.id,
+                                                        {
+                                                          description:
+                                                            e.target.value,
+                                                          isEditing: false,
+                                                        },
+                                                        true
+                                                      );
+                                                    } else {
+                                                      handleUpdateTask(
+                                                        task.id,
+                                                        { isEditing: false },
+                                                        false
+                                                      );
+                                                    }
+                                                  }
+                                                }}
+                                                onKeyDown={(e) => {
+                                                  const value =
+                                                    e.target.value.trim();
+
+                                                  if (e.key === "Enter") {
+                                                    e.preventDefault();
+
+                                                    if (value === "") {
+                                                      handleDeleteTask(task.id);
+                                                    } else {
+                                                      handleUpdateTask(
+                                                        task.id,
+                                                        {
+                                                          description:
+                                                            e.target.value,
+                                                          isEditing: false,
+                                                        },
+                                                        true
+                                                      );
+                                                      handleAddTask(
+                                                        task.day_id
+                                                      );
+                                                    }
+                                                  } else if (
+                                                    e.key === "Escape"
+                                                  ) {
+                                                    e.preventDefault();
+
+                                                    if (value === "") {
+                                                      handleDeleteTask(task.id);
+                                                    } else {
+                                                      handleUpdateTask(
+                                                        task.id,
+                                                        {
+                                                          description:
+                                                            e.target.value,
+                                                          isEditing: false,
+                                                        },
+                                                        true
+                                                      );
+                                                    }
+                                                  }
+                                                }}
                                                 className="w-full bg-slate-100 dark:bg-slate-800 md:bg-transparent px-2 py-2 md:py-1 outline-none text-base md:text-sm rounded md:border-b border-teal-500 text-slate-800 dark:text-slate-200"
                                                 autoFocus
                                               />
@@ -1229,7 +1373,7 @@ export default function App() {
                                                 }`}
                                               >
                                                 {highlightText(
-                                                  task.description || "", // <-- BLINDAGEM AQUI TAMBÉM
+                                                  task.description || "",
                                                   searchQuery,
                                                   task.id
                                                 ) || (
@@ -1249,10 +1393,7 @@ export default function App() {
                                               onClick={(e) =>
                                                 e.stopPropagation()
                                               }
-                                              disabled={
-                                                task.completed ||
-                                                !task.isEditing
-                                              }
+                                              disabled={task.completed}
                                               value={task.eisenhower}
                                               onChange={(e) =>
                                                 handleUpdateTask(
@@ -1260,7 +1401,7 @@ export default function App() {
                                                   {
                                                     eisenhower: e.target.value,
                                                   },
-                                                  true
+                                                  false
                                                 )
                                               }
                                               className="w-full text-sm md:text-xs p-2 md:p-1 rounded bg-slate-100 dark:bg-slate-800 border-none outline-none cursor-pointer text-slate-600 dark:text-slate-300 text-left md:text-center"
@@ -1280,7 +1421,78 @@ export default function App() {
                                               </option>
                                             </select>
                                           </td>
-          
+
+                                          <td className="flex justify-between items-center md:table-cell p-2 md:p-3 border-b md:border-none border-slate-100 dark:border-slate-800/50 text-center">
+                                            <span className="md:hidden text-xs font-bold text-slate-400 uppercase tracking-widest">
+                                              Alerta
+                                            </span>
+                                            <div className="flex flex-col items-center justify-center gap-1.5 min-h-[40px]">
+                                              <button
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  const isNowActive =
+                                                    !task.has_notification;
+
+                                                  const parts =
+                                                    task.day_id.split("-");
+                                                  const defaultDate = `${
+                                                    parts[0]
+                                                  }-${parts[1].padStart(
+                                                    2,
+                                                    "0"
+                                                  )}-${parts[2].padStart(
+                                                    2,
+                                                    "0"
+                                                  )}`;
+
+                                                  handleUpdateTask(
+                                                    task.id,
+                                                    {
+                                                      has_notification:
+                                                        isNowActive,
+                                                      notification_date:
+                                                        isNowActive &&
+                                                        !task.notification_date
+                                                          ? defaultDate
+                                                          : task.notification_date,
+                                                    },
+                                                    true
+                                                  );
+                                                }}
+                                                className={`p-1.5 rounded-full transition-colors ${
+                                                  task.has_notification
+                                                    ? "bg-amber-100 text-amber-600 dark:bg-amber-900/50 dark:text-amber-400 ring-2 ring-amber-400/50"
+                                                    : "text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800"
+                                                }`}
+                                              >
+                                                <Bell className="w-4 h-4 md:w-4 md:h-4" />
+                                              </button>
+
+                                              {task.has_notification && (
+                                                <input
+                                                  type="date"
+                                                  value={
+                                                    task.notification_date || ""
+                                                  }
+                                                  onClick={(e) =>
+                                                    e.stopPropagation()
+                                                  }
+                                                  onChange={(e) =>
+                                                    handleUpdateTask(
+                                                      task.id,
+                                                      {
+                                                        notification_date:
+                                                          e.target.value,
+                                                      },
+                                                      true
+                                                    )
+                                                  }
+                                                  className="text-[10px] md:text-xs w-full max-w-[110px] p-0.5 px-1 border border-amber-300 dark:border-amber-700/50 rounded bg-amber-50 dark:bg-amber-900/20 text-amber-800 dark:text-amber-200 outline-none cursor-pointer"
+                                                />
+                                              )}
+                                            </div>
+                                          </td>
+
                                           <td className="flex md:table-cell items-center justify-between md:justify-center p-3 md:p-3 bg-slate-50 dark:bg-slate-900/50 md:bg-transparent rounded-b-lg md:rounded-none mt-1 md:mt-0">
                                             <span className="md:hidden text-xs font-bold text-slate-400 uppercase tracking-widest">
                                               Ações
@@ -1293,7 +1505,8 @@ export default function App() {
                                                     handleUpdateTask(
                                                       task.id,
                                                       {
-                                    
+                                                        description:
+                                                          task.description,
                                                         isEditing: false,
                                                       },
                                                       true
@@ -1311,11 +1524,10 @@ export default function App() {
                                                   disabled={task.completed}
                                                   onClick={(e) => {
                                                     e.stopPropagation();
-                                                    // CORREÇÃO: O lápis volta a apenas ABRIR a edição localmente
                                                     handleUpdateTask(
                                                       task.id,
                                                       { isEditing: true },
-                                                      true
+                                                      false
                                                     );
                                                   }}
                                                   className="p-2 md:p-1 rounded cursor-pointer bg-slate-200 dark:bg-slate-800 md:bg-transparent transition-colors hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-400 hover:text-amber-500 flex items-center gap-1"
@@ -1369,10 +1581,21 @@ export default function App() {
           </div>
         </main>
       </div>
+
+      <NotificationCenter tasks={tasks} handleUpdateTask={handleUpdateTask} />
       <AtaReuniao
         isOpen={isAtaOpen}
         onClose={() => setIsAtaOpen(false)}
         recarregarAtas={carregarAtas}
+      />
+
+      <ModalRecorrentes
+        isOpen={isRecorrentesOpen}
+        onClose={() => setIsRecorrentesOpen(false)}
+        onSave={handleAddRecurringTask}
+        tasks={tasks}
+        onDelete={handleDeleteTask}
+        onEdit={handleUpdateTask}
       />
     </div>
   );
