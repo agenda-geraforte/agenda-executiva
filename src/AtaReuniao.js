@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { X, Download } from "lucide-react";
+import { X, Download, Plus } from "lucide-react"; // Importamos o ícone de Plus
 import html2pdf from "html2pdf.js";
 import { supabase } from "./supabaseClient";
 
@@ -13,20 +13,24 @@ export default function AtaReuniao({ isOpen, onClose, recarregarAtas }) {
 
   const [isGenerating, setIsGenerating] = useState(false);
   const [assunto, setAssunto] = useState("");
-  // Inicializa o estado chamando a função
   const [dataReuniao, setDataReuniao] = useState(obterDataAtual);
   const [participantes, setParticipantes] = useState(Array(12).fill(""));
   const [desenvolvimento, setDesenvolvimento] = useState("");
-  const [planoAcao, setPlanoAcao] = useState("");
+
+  // Plano de Ação (Começa com 6, mas agora é infinito)
+  const [planoAcao, setPlanoAcao] = useState(
+    Array.from({ length: 6 }, () => ({ acao: "", responsavel: "" }))
+  );
 
   useEffect(() => {
     if (!isOpen) {
       setAssunto("");
-      // Agora você pode chamar a função aqui sem erros de escopo
       setDataReuniao(obterDataAtual());
       setParticipantes(Array(12).fill(""));
       setDesenvolvimento("");
-      setPlanoAcao("");
+      setPlanoAcao(
+        Array.from({ length: 6 }, () => ({ acao: "", responsavel: "" }))
+      );
       setIsGenerating(false);
     }
   }, [isOpen]);
@@ -36,7 +40,6 @@ export default function AtaReuniao({ isOpen, onClose, recarregarAtas }) {
   const gerarPDF = async () => {
     setIsGenerating(true);
 
-    // 1. Pega os dados de quem está logado para não misturar os arquivos
     const { data: authData } = await supabase.auth.getUser();
     const userId = authData?.user?.id;
 
@@ -60,30 +63,38 @@ export default function AtaReuniao({ isOpen, onClose, recarregarAtas }) {
       const dataFormatadaParaNome = dataReuniao.split("-").reverse().join("-");
       const nomeArquivoFinal = `Ata_de_Reuniao_${dataFormatadaParaNome}_${assuntoFormatado}.pdf`;
 
+      // MARGENS DEFINIDAS EM 15mm
+      // 1. Zera a margem lateral do PDF e ativa a quebra inteligente 'avoid-all'
+      // CONFIGURAÇÃO OTIMIZADA PARA REDUZIR O PESO DO PDF
       const opcoes = {
-        margin: [15, 0, 15, 0],
+        margin: 0, // <--- A MÁGICA (0 margem do gerador de pdf)
         filename: nomeArquivoFinal,
-        image: { type: "jpeg", quality: 1.0 },
-        html2canvas: { scale: 2, useCORS: true, letterRendering: true },
+        image: { type: "jpeg", quality: 0.75 },
+        html2canvas: {
+          scale: 1.5,
+          useCORS: true,
+          letterRendering: true,
+          windowWidth: 794,
+        }, // 794px = A4
         jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
-        pagebreak: { mode: ["css", "legacy"] },
+        pagebreak: { mode: ["avoid-all", "css", "legacy"] },
       };
 
       const classeAntiga = elemento.className;
-      elemento.className =
-        "bg-white w-[210mm] min-h-[297mm] py-10 px-12 text-slate-900 mx-auto";
 
-      // Em vez de .save(), usamos .output('blob') para pegar o "arquivo cru"
+      // 2. APLICAMOS A MARGEM DIRETO NO CSS DA FOLHA
+      // w-[210mm] é a largura exata do papel. px-[15mm] e py-[15mm] formam as margens perfeitas!
+      elemento.className =
+        "bg-white w-[210mm] box-border px-[15mm] py-[15mm] text-slate-900 mx-auto";
+
       html2pdf()
         .set(opcoes)
         .from(elemento)
         .output("blob")
         .then(async (pdfBlob) => {
           try {
-            // 2. Criamos um caminho único na nuvem (PastaDoUsuario / NomeDaAta.pdf)
             const caminhoArquivo = `${userId}/${Date.now()}_${nomeArquivoFinal}`;
 
-            // 3. Faz o Upload do Blob para o Supabase Storage (Levíssimo!)
             const { error: uploadError } = await supabase.storage
               .from("atas")
               .upload(caminhoArquivo, pdfBlob, {
@@ -93,20 +104,18 @@ export default function AtaReuniao({ isOpen, onClose, recarregarAtas }) {
 
             if (uploadError) throw uploadError;
 
-            // 4. Salva NOME, CAMINHO e METADADOS na tabela do banco (Rápido e barato)
             const { error: dbError } = await supabase.from("atas").insert([
               {
                 nome: nomeArquivoFinal,
                 caminho_storage: caminhoArquivo,
                 assunto: assunto || "Sem assunto",
                 data_reuniao: dataReuniao,
-                file_url: caminhoArquivo, // Preenchendo a url com o caminho por enquanto
+                file_url: caminhoArquivo,
               },
             ]);
 
             if (dbError) throw dbError;
 
-            // 5. Aciona o download no PC do usuário (já que bloqueamos o .save automático)
             const urlLocal = URL.createObjectURL(pdfBlob);
             const linkDownload = document.createElement("a");
             linkDownload.href = urlLocal;
@@ -114,7 +123,6 @@ export default function AtaReuniao({ isOpen, onClose, recarregarAtas }) {
             linkDownload.click();
             URL.revokeObjectURL(urlLocal);
 
-            // Sucesso! Fecha o modal
             onClose();
           } catch (error) {
             console.error("Erro ao subir para a nuvem:", error);
@@ -132,6 +140,35 @@ export default function AtaReuniao({ isOpen, onClose, recarregarAtas }) {
     novosParticipantes[index] = valor;
     setParticipantes(novosParticipantes);
   };
+
+  const handlePlanoAcaoChange = (index, campo, valor) => {
+    const novoPlano = [...planoAcao];
+    novoPlano[index] = { ...novoPlano[index], [campo]: valor };
+    setPlanoAcao(novoPlano);
+  };
+
+  // === NOVO: O MOTOR DO ENTER PARA A TABELA INFINITA ===
+  const handleKeyDownPlanoAcao = (e, index) => {
+    if (e.key === "Enter") {
+      e.preventDefault(); // Evita pular a tela
+
+      // Se apertar Enter na última linha, cria uma nova
+      if (index === planoAcao.length - 1) {
+        setPlanoAcao((prev) => [...prev, { acao: "", responsavel: "" }]);
+
+        // Espera o React desenhar a nova linha e joga o cursor pra ela
+        setTimeout(() => {
+          const nextInput = document.getElementById(`acao-${index + 1}`);
+          if (nextInput) nextInput.focus();
+        }, 50);
+      } else {
+        // Se não for a última linha, apenas pula para a de baixo
+        const nextInput = document.getElementById(`acao-${index + 1}`);
+        if (nextInput) nextInput.focus();
+      }
+    }
+  };
+  // ===================================================
 
   const renderTextoSeguro = (texto) => {
     return texto.split("\n").map((linha, index) => (
@@ -190,20 +227,27 @@ export default function AtaReuniao({ isOpen, onClose, recarregarAtas }) {
 
         {/* ÁREA DA FOLHA */}
         <div className="flex-1 overflow-y-auto p-4 sm:p-8 bg-slate-200 dark:bg-slate-800 flex justify-center overflow-x-hidden">
-          {/* A mágica do responsivo: w-full max-w-[210mm] no lugar do tamanho fixo */}
           <div
             id="conteudo-ata"
             className="bg-white w-full max-w-[210mm] min-h-[297mm] h-max shadow-lg py-6 px-4 sm:py-10 sm:px-12 text-slate-900 mx-auto transition-all"
           >
-            {/* Título e Data */}
-            <div className="flex flex-col sm:flex-row sm:items-end justify-between border-b-2 border-slate-800 pb-3 sm:pb-4 mb-4 sm:mb-6 gap-3 sm:gap-0">
-              <h1 className="text-xl sm:text-3xl font-black uppercase tracking-widest text-center sm:text-left">
+            {/* CABEÇALHO CORPORATIVO CENTRALIZADO */}
+            <div className="flex items-center justify-center md:justify-start px-4 py-3 border-b border-slate-100 dark:border-slate-800/50 bg-slate-50/50 dark:bg-slate-900/30">
+              {/* A IMAGEM ENTRA DIRETO AQUI, SEM A DIV QUADRADA EM VOLTA */}
+              <img
+                src="/logo.png"
+                alt="Geraforte"
+                className="h-7 md:h-9 w-auto object-contain shrink-0 dark:bg-slate-50 dark:p-1.5 dark:rounded transition-colors shadow-sm"
+              />
+
+              <h1 className="text-2xl sm:text-3xl font-black uppercase tracking-widest text-center leading-none text-slate-900">
                 Ata de Reunião
               </h1>
-              <div className="text-sm font-bold flex items-center justify-center sm:justify-end gap-2">
+
+              <div className="mt-4 flex items-center justify-center gap-2 text-sm font-bold text-slate-800">
                 <span>DATA:</span>
                 {isGenerating ? (
-                  <span className="border-b border-slate-800 px-2 w-full sm:min-w-[140px] text-center pb-1 inline-block">
+                  <span className="border-b border-slate-800 px-2 min-w-[120px] text-center pb-1 inline-block">
                     {dataReuniao.split("-").reverse().join("/")}
                   </span>
                 ) : (
@@ -211,19 +255,18 @@ export default function AtaReuniao({ isOpen, onClose, recarregarAtas }) {
                     type="date"
                     value={dataReuniao}
                     onChange={(e) => setDataReuniao(e.target.value)}
-                    className="border-b border-slate-800 px-2 w-full sm:min-w-[140px] text-center bg-transparent outline-none font-bold text-slate-800 cursor-pointer hover:bg-slate-50 transition-colors pb-1"
+                    className="border-b border-slate-800 px-2 min-w-[120px] text-center bg-transparent outline-none font-bold text-slate-800 cursor-pointer hover:bg-slate-50 transition-colors pb-1"
                   />
                 )}
               </div>
             </div>
 
             <div className="space-y-6 sm:space-y-8">
-              {/* Participantes (Grid Responsivo) */}
+              {/* Participantes */}
               <div>
                 <h3 className="font-bold text-base sm:text-lg uppercase text-slate-800 mb-3 sm:mb-4 text-center sm:text-left">
                   Participantes
                 </h3>
-                {/* AQUI: 1 coluna no mobile, 2 no tablet pequeno, 4 no desktop */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-4 sm:gap-y-6">
                   {isGenerating ? (
                     participantesPreenchidos.length > 0 ? (
@@ -308,26 +351,99 @@ export default function AtaReuniao({ isOpen, onClose, recarregarAtas }) {
                 )}
               </div>
 
-              {/* Plano de Ação */}
+              {/* TABELA DE PLANO DE AÇÃO (DUAS COLUNAS + INFINITA) */}
               <div className="pt-4 sm:pt-6 border-t-2 border-slate-800">
                 <h3
-                  className="font-bold text-base sm:text-lg uppercase text-slate-800 mb-2 sm:mb-3"
+                  className="font-bold text-base sm:text-lg uppercase text-slate-800 mb-3 sm:mb-4"
                   style={{ pageBreakInside: "avoid" }}
                 >
                   Plano de Ação:
                 </h3>
-                {isGenerating ? (
-                  <div className="w-full text-sm sm:text-base leading-relaxed p-1 sm:p-2 text-justify">
-                    {renderTextoSeguro(planoAcao)}
+
+                <div className="flex flex-col border-2 border-slate-800 rounded-lg overflow-hidden bg-white">
+                  {/* Cabeçalho da Tabela */}
+                  <div
+                    className="grid grid-cols-12 bg-slate-100 border-b-2 border-slate-800"
+                    style={{ pageBreakInside: "avoid" }}
+                  >
+                    <div className="col-span-8 p-3 font-bold text-slate-800 border-r-2 border-slate-800 text-xs sm:text-sm uppercase text-center tracking-wide">
+                      O que fazer (Ação)
+                    </div>
+                    <div className="col-span-4 p-3 font-bold text-slate-800 text-xs sm:text-sm text-center uppercase tracking-wide">
+                      Responsável
+                    </div>
                   </div>
-                ) : (
-                  <textarea
-                    value={planoAcao}
-                    spellCheck="false"
-                    onChange={(e) => setPlanoAcao(e.target.value)}
-                    className="w-full min-h-[150px] sm:min-h-[200px] resize-none outline-none text-sm sm:text-base leading-relaxed p-2 bg-transparent border border-slate-200 rounded focus:border-teal-500 transition-colors"
-                    placeholder="Defina os responsáveis e os próximos passos práticos..."
-                  ></textarea>
+
+                  {/* Linhas */}
+                  {planoAcao.map((item, i) => (
+                    <div
+                      key={i}
+                      style={{ pageBreakInside: "avoid" }} // <--- A MÁGICA ENTRA AQUI
+                      className={`grid grid-cols-12 ${
+                        i !== planoAcao.length - 1
+                          ? "border-b border-slate-300"
+                          : ""
+                      }`}
+                    >
+                      <div className="col-span-8 p-2 sm:p-3 border-r-2 border-slate-800 flex items-center">
+                        {isGenerating ? (
+                          <span className="w-full text-sm min-h-[24px] block break-words">
+                            {item.acao}
+                          </span>
+                        ) : (
+                          <input
+                            id={`acao-${i}`}
+                            type="text"
+                            value={item.acao}
+                            onChange={(e) =>
+                              handlePlanoAcaoChange(i, "acao", e.target.value)
+                            }
+                            onKeyDown={(e) => handleKeyDownPlanoAcao(e, i)}
+                            className="w-full bg-transparent outline-none text-sm placeholder-slate-300 text-slate-800"
+                            placeholder={`Ação ${i + 1}`}
+                          />
+                        )}
+                      </div>
+
+                      <div className="col-span-4 p-2 sm:p-3 flex items-center">
+                        {isGenerating ? (
+                          <span className="w-full text-sm text-center font-semibold min-h-[24px] block break-words text-slate-700">
+                            {item.responsavel}
+                          </span>
+                        ) : (
+                          <input
+                            type="text"
+                            value={item.responsavel}
+                            onChange={(e) =>
+                              handlePlanoAcaoChange(
+                                i,
+                                "responsavel",
+                                e.target.value
+                              )
+                            }
+                            onKeyDown={(e) => handleKeyDownPlanoAcao(e, i)}
+                            className="w-full bg-transparent outline-none text-sm text-center font-semibold placeholder-slate-300 text-slate-700"
+                            placeholder="Nome"
+                          />
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Botão Extra (Para quem usa mouse/mobile) */}
+                {!isGenerating && (
+                  <button
+                    onClick={() =>
+                      setPlanoAcao((prev) => [
+                        ...prev,
+                        { acao: "", responsavel: "" },
+                      ])
+                    }
+                    className="mt-3 ml-1 text-xs font-bold text-teal-600 hover:text-teal-700 flex items-center gap-1 transition-colors outline-none"
+                  >
+                    <Plus className="w-4 h-4" /> Adicionar nova linha
+                  </button>
                 )}
               </div>
             </div>
