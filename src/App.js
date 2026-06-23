@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import Login from "./Login";
 import AtaReuniao from "./AtaReuniao";
 import NotificationCenter from "./NotificationCenter";
@@ -143,7 +143,7 @@ export default function App() {
   const [tasksLoaded, setTasksLoaded] = useState(false);
   const [atas, setAtas] = useState([]);
 
-  const fetchTasks = async () => {
+  const fetchTasks = useCallback(async () => {
     const { data, error } = await supabase.from("tarefas").select("*");
     if (error) {
       console.error("Erro ao buscar tarefas:", error);
@@ -207,9 +207,9 @@ export default function App() {
           .eq("id", item.id);
       }
     }
-  };
+  }, [anoAtualStr, mesAtual, diaAtual]);
 
-  const carregarAtas = async () => {
+  const carregarAtas = useCallback(async () => {
     const { data, error } = await supabase
       .from("atas")
       .select("*")
@@ -217,7 +217,7 @@ export default function App() {
 
     if (data) setAtas(data);
     if (error) console.error("Erro ao buscar atas:", error);
-  };
+  }, []);
 
   const handleDownloadAta = async (caminhoStorage, nomeArquivo) => {
     try {
@@ -247,7 +247,7 @@ export default function App() {
       carregarAtas();
     };
     carregarDadosIniciais();
-  }, [isAuthenticated]);
+  }, [isAuthenticated, fetchTasks, carregarAtas]);
 
   const matches = useMemo(() => {
     if (!searchQuery.trim()) return [];
@@ -401,6 +401,7 @@ export default function App() {
     if (calcTab === "padrao") {
       try {
         if (calcExpressao) {
+          // eslint-disable-next-line no-new-func
           const res = new Function("return " + calcExpressao)();
           setCalcResultado(res !== undefined && !isNaN(res) ? res : "...");
         } else setCalcResultado("");
