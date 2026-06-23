@@ -32,7 +32,12 @@ export default function App() {
   const [selectedYear, setSelectedYear] = useState(
     String(new Date().getFullYear())
   );
+  
+  // 1. ADICIONADO: isCheckingSession para evitar que a tela de login pisque 
+  // antes de o Supabase confirmar se tem alguém logado ou não
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isCheckingSession, setIsCheckingSession] = useState(true);
+  
   const [isAtaOpen, setIsAtaOpen] = useState(false);
   const [isRecorrentesOpen, setIsRecorrentesOpen] = useState(false);
 
@@ -60,6 +65,22 @@ export default function App() {
   }, [isDarkMode]);
 
   const toggleTheme = () => setIsDarkMode((prev) => !prev);
+
+  // 2. A MÁGICA DO LOGIN: Olheiro do Supabase para lembrar do usuário
+  useEffect(() => {
+    // Verifica o cofre do navegador na primeira vez
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setIsAuthenticated(!!session);
+      setIsCheckingSession(false);
+    });
+
+    // Fica escutando qualquer mudança de login/logout
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setIsAuthenticated(!!session);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
 
   const [isCalcOpen, setIsCalcOpen] = useState(false);
   const [calcTab, setCalcTab] = useState("datas");
@@ -331,7 +352,6 @@ export default function App() {
         setTimeout(() => {
           const elemento = document.getElementById(`dia-${targetId}`);
           if (elemento) {
-            // AJUSTE: Ancoragem agora foca no 'start' (topo da data)
             elemento.scrollIntoView({ behavior: "auto", block: "start" });
           }
         }, 50);
@@ -365,7 +385,6 @@ export default function App() {
     setTimeout(() => {
       const elementoHoje = document.getElementById(`dia-${idDiaHoje}`);
       if (elementoHoje) {
-        // AJUSTE: 'Hoje' agora foca no 'start' (topo da data)
         elementoHoje.scrollIntoView({ behavior: "smooth", block: "start" });
       }
     }, 300);
@@ -447,7 +466,6 @@ export default function App() {
           `dia-${idDiaSelectedYear}`
         );
         if (elementoHoje) {
-          // AJUSTE: Scroll Inicial foca no 'start'
           elementoHoje.scrollIntoView({ behavior: "smooth", block: "start" });
           setInitialScrollDone(true);
         }
@@ -621,6 +639,19 @@ export default function App() {
     else setDiasExpandidos([...diasExpandidos, idDia]);
   };
 
+  // 3. TELA DE CARREGAMENTO (Evita piscar o login)
+  if (isCheckingSession) {
+    return (
+      <div className="h-screen w-full flex items-center justify-center bg-slate-50 dark:bg-slate-950 transition-colors">
+        {/* Animação suave para não ficar uma tela branca feia */}
+        <div className="animate-pulse flex flex-col items-center">
+          <div className="w-12 h-12 rounded-full border-4 border-teal-200 dark:border-teal-900 border-t-teal-600 animate-spin"></div>
+        </div>
+      </div>
+    );
+  }
+
+  // 4. RETORNA O LOGIN SE NÃO TIVER SESSÃO
   if (!isAuthenticated) {
     return (
       <Login
@@ -656,7 +687,6 @@ export default function App() {
       >
         <div className="flex items-center justify-center md:justify-start gap-4 md:gap-6 px-4 py-3 border-b border-slate-100 dark:border-slate-800/50 bg-slate-50/50 dark:bg-slate-900/30">
           
-          {/* Container da Logo com Plaquinha Inteligente */}
           <div className="shrink-0 flex items-center justify-center p-1.5 rounded-lg border border-transparent dark:bg-slate-50 dark:border-slate-200 dark:shadow-sm transition-all">
             <img 
               src="/logo.png" 
@@ -665,7 +695,6 @@ export default function App() {
             />
           </div>
 
-          {/* Textos do Sistema */}
           <div className="flex flex-col">
             <h1 className="text-xl md:text-2xl font-black text-slate-800 dark:text-slate-100 leading-none tracking-tight">
               PLANEJADOR
@@ -1115,7 +1144,6 @@ export default function App() {
                         <div
                           key={idDia}
                           id={`dia-${idDia}`}
-                          // AJUSTE: scroll-mt-16 para não esconder a data embaixo do mês
                           className="flex flex-col scroll-mt-16"
                         >
                           <button
