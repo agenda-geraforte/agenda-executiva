@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { X, Download, Plus } from "lucide-react"; // Importamos o ícone de Plus
+import { X, Download, Plus } from "lucide-react";
 import html2pdf from "html2pdf.js";
 import { supabase } from "./supabaseClient";
 
@@ -63,29 +63,25 @@ export default function AtaReuniao({ isOpen, onClose, recarregarAtas }) {
       const dataFormatadaParaNome = dataReuniao.split("-").reverse().join("-");
       const nomeArquivoFinal = `Ata_de_Reuniao_${dataFormatadaParaNome}_${assuntoFormatado}.pdf`;
 
-      // MARGENS DEFINIDAS EM 15mm
-      // 1. Zera a margem lateral do PDF e ativa a quebra inteligente 'avoid-all'
-      // CONFIGURAÇÃO OTIMIZADA PARA REDUZIR O PESO DO PDF
+      // 1. A VERDADEIRA MÁGICA DAS MARGENS NATIVAS DO PDF
       const opcoes = {
-        margin: 0, // <--- A MÁGICA (0 margem do gerador de pdf)
+        margin: [15, 15, 15, 15], // 15mm de margem em todos os lados para todas as páginas
         filename: nomeArquivoFinal,
-        image: { type: "jpeg", quality: 0.75 },
+        image: { type: "jpeg", quality: 0.98 }, // Qualidade alta
         html2canvas: {
-          scale: 1.5,
+          scale: 2, // Escala melhorada para textos nítidos
           useCORS: true,
           letterRendering: true,
-          windowWidth: 794,
-        }, // 794px = A4
+        },
         jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
         pagebreak: { mode: ["avoid-all", "css", "legacy"] },
       };
 
       const classeAntiga = elemento.className;
 
-      // 2. APLICAMOS A MARGEM DIRETO NO CSS DA FOLHA
-      // w-[210mm] é a largura exata do papel. px-[15mm] e py-[15mm] formam as margens perfeitas!
-      elemento.className =
-        "bg-white w-[210mm] box-border px-[15mm] py-[15mm] text-slate-900 mx-auto";
+      // 2. AJUSTE DO CSS ANTES DA FOTO
+      // Largura de 180mm (A4 de 210mm menos as duas margens de 15mm)
+      elemento.className = "bg-white w-[180mm] box-border text-slate-900 mx-auto";
 
       html2pdf()
         .set(opcoes)
@@ -128,6 +124,7 @@ export default function AtaReuniao({ isOpen, onClose, recarregarAtas }) {
             console.error("Erro ao subir para a nuvem:", error);
             alert("Erro ao salvar a ata na nuvem. Verifique a conexão.");
           } finally {
+            // Restaura as classes originais para a tela continuar bonita
             elemento.className = classeAntiga;
             setIsGenerating(false);
           }
@@ -147,28 +144,24 @@ export default function AtaReuniao({ isOpen, onClose, recarregarAtas }) {
     setPlanoAcao(novoPlano);
   };
 
-  // === NOVO: O MOTOR DO ENTER PARA A TABELA INFINITA ===
+  // === MOTOR DO ENTER PARA A TABELA INFINITA ===
   const handleKeyDownPlanoAcao = (e, index) => {
     if (e.key === "Enter") {
-      e.preventDefault(); // Evita pular a tela
+      e.preventDefault();
 
-      // Se apertar Enter na última linha, cria uma nova
       if (index === planoAcao.length - 1) {
         setPlanoAcao((prev) => [...prev, { acao: "", responsavel: "" }]);
 
-        // Espera o React desenhar a nova linha e joga o cursor pra ela
         setTimeout(() => {
           const nextInput = document.getElementById(`acao-${index + 1}`);
           if (nextInput) nextInput.focus();
         }, 50);
       } else {
-        // Se não for a última linha, apenas pula para a de baixo
         const nextInput = document.getElementById(`acao-${index + 1}`);
         if (nextInput) nextInput.focus();
       }
     }
   };
-  // ===================================================
 
   const renderTextoSeguro = (texto) => {
     return texto.split("\n").map((linha, index) => (
@@ -233,18 +226,17 @@ export default function AtaReuniao({ isOpen, onClose, recarregarAtas }) {
           >
             {/* CABEÇALHO CORPORATIVO CENTRALIZADO */}
             <div className="flex items-center justify-center md:justify-start px-4 py-3 border-b border-slate-100 dark:border-slate-800/50 bg-slate-50/50 dark:bg-slate-900/30">
-              {/* A IMAGEM ENTRA DIRETO AQUI, SEM A DIV QUADRADA EM VOLTA */}
               <img
                 src="/logo.png"
                 alt="Geraforte"
                 className="h-7 md:h-9 w-auto object-contain shrink-0 dark:bg-slate-50 dark:p-1.5 dark:rounded transition-colors shadow-sm"
               />
 
-              <h1 className="text-2xl sm:text-3xl font-black uppercase tracking-widest text-center leading-none text-slate-900">
+              <h1 className="text-2xl sm:text-3xl font-black uppercase tracking-widest text-center leading-none text-slate-900 ml-4">
                 Ata de Reunião
               </h1>
 
-              <div className="mt-4 flex items-center justify-center gap-2 text-sm font-bold text-slate-800">
+              <div className="mt-4 flex items-center justify-center gap-2 text-sm font-bold text-slate-800 ml-auto">
                 <span>DATA:</span>
                 {isGenerating ? (
                   <span className="border-b border-slate-800 px-2 min-w-[120px] text-center pb-1 inline-block">
@@ -261,7 +253,7 @@ export default function AtaReuniao({ isOpen, onClose, recarregarAtas }) {
               </div>
             </div>
 
-            <div className="space-y-6 sm:space-y-8">
+            <div className="space-y-6 sm:space-y-8 mt-6">
               {/* Participantes */}
               <div>
                 <h3 className="font-bold text-base sm:text-lg uppercase text-slate-800 mb-3 sm:mb-4 text-center sm:text-left">
@@ -351,7 +343,7 @@ export default function AtaReuniao({ isOpen, onClose, recarregarAtas }) {
                 )}
               </div>
 
-              {/* TABELA DE PLANO DE AÇÃO (DUAS COLUNAS + INFINITA) */}
+              {/* TABELA DE PLANO DE AÇÃO */}
               <div className="pt-4 sm:pt-6 border-t-2 border-slate-800">
                 <h3
                   className="font-bold text-base sm:text-lg uppercase text-slate-800 mb-3 sm:mb-4"
@@ -361,7 +353,6 @@ export default function AtaReuniao({ isOpen, onClose, recarregarAtas }) {
                 </h3>
 
                 <div className="flex flex-col border-2 border-slate-800 rounded-lg overflow-hidden bg-white">
-                  {/* Cabeçalho da Tabela */}
                   <div
                     className="grid grid-cols-12 bg-slate-100 border-b-2 border-slate-800"
                     style={{ pageBreakInside: "avoid" }}
@@ -374,11 +365,10 @@ export default function AtaReuniao({ isOpen, onClose, recarregarAtas }) {
                     </div>
                   </div>
 
-                  {/* Linhas */}
                   {planoAcao.map((item, i) => (
                     <div
                       key={i}
-                      style={{ pageBreakInside: "avoid" }} // <--- A MÁGICA ENTRA AQUI
+                      style={{ pageBreakInside: "avoid" }}
                       className={`grid grid-cols-12 ${
                         i !== planoAcao.length - 1
                           ? "border-b border-slate-300"
@@ -431,7 +421,6 @@ export default function AtaReuniao({ isOpen, onClose, recarregarAtas }) {
                   ))}
                 </div>
 
-                {/* Botão Extra (Para quem usa mouse/mobile) */}
                 {!isGenerating && (
                   <button
                     onClick={() =>
@@ -440,7 +429,7 @@ export default function AtaReuniao({ isOpen, onClose, recarregarAtas }) {
                         { acao: "", responsavel: "" },
                       ])
                     }
-                    className="mt-3 ml-1 text-xs font-bold text-teal-600 hover:text-teal-700 flex items-center gap-1 transition-colors outline-none"
+                    className="mt-3 ml-1 text-xs font-bold text-teal-600 hover:text-teal-700 flex items-center gap-1 transition-colors outline-none cursor-pointer"
                   >
                     <Plus className="w-4 h-4" /> Adicionar nova linha
                   </button>
