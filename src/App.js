@@ -654,14 +654,18 @@ export default function App() {
         }}
         className="shrink-0 flex flex-col z-20 bg-white dark:bg-slate-950 border-b border-slate-200 dark:border-slate-800 transition-colors relative"
       >
-        <div className="flex items-center justify-center md:justify-start px-4 py-3 border-b border-slate-100 dark:border-slate-800/50 bg-slate-50/50 dark:bg-slate-900/30">
-          {/* A IMAGEM ENTRA DIRETO AQUI, SEM A DIV QUADRADA EM VOLTA */}
-          <img
-            src="/logo.png"
-            alt="Geraforte"
-            className="h-7 md:h-9 w-auto object-contain shrink-0 dark:bg-slate-50 dark:p-1.5 dark:rounded transition-colors shadow-sm"
-          />
+        <div className="flex items-center justify-center md:justify-start gap-4 md:gap-6 px-4 py-3 border-b border-slate-100 dark:border-slate-800/50 bg-slate-50/50 dark:bg-slate-900/30">
+          
+          {/* Container da Logo com Plaquinha Inteligente */}
+          <div className="shrink-0 flex items-center justify-center p-1.5 rounded-lg border border-transparent dark:bg-slate-50 dark:border-slate-200 dark:shadow-sm transition-all">
+            <img 
+              src="/LOGO GERAFORTE Original.png" 
+              alt="Geraforte" 
+              className="h-8 md:h-10 w-auto object-contain block" 
+            />
+          </div>
 
+          {/* Textos do Sistema */}
           <div className="flex flex-col">
             <h1 className="text-xl md:text-2xl font-black text-slate-800 dark:text-slate-100 leading-none tracking-tight">
               PLANEJADOR
@@ -670,6 +674,7 @@ export default function App() {
               Executivo
             </span>
           </div>
+
         </div>
 
         <div className="h-14 flex items-center justify-between px-3 md:px-6">
