@@ -4,7 +4,6 @@ import html2pdf from "html2pdf.js";
 import { supabase } from "./supabaseClient";
 
 export default function AtaReuniao({ isOpen, onClose, recarregarAtas }) {
-  // Função auxiliar para pegar a data atual no formato YYYY-MM-DD
   const obterDataAtual = () => {
     const agora = new Date();
     const offset = agora.getTimezoneOffset() * 60000;
@@ -17,7 +16,6 @@ export default function AtaReuniao({ isOpen, onClose, recarregarAtas }) {
   const [participantes, setParticipantes] = useState(Array(12).fill(""));
   const [desenvolvimento, setDesenvolvimento] = useState("");
 
-  // Plano de Ação (Começa com 6, mas agora é infinito)
   const [planoAcao, setPlanoAcao] = useState(
     Array.from({ length: 6 }, () => ({ acao: "", responsavel: "" }))
   );
@@ -49,6 +47,10 @@ export default function AtaReuniao({ isOpen, onClose, recarregarAtas }) {
       return;
     }
 
+    // 1. CORREÇÃO DO BUG DO CLARÃO BRANCO: Força o modal a rolar para o topo
+    const modalScroll = document.getElementById("area-scroll-modal");
+    if (modalScroll) modalScroll.scrollTop = 0;
+
     setTimeout(() => {
       const elemento = document.getElementById("conteudo-ata");
 
@@ -63,25 +65,25 @@ export default function AtaReuniao({ isOpen, onClose, recarregarAtas }) {
       const dataFormatadaParaNome = dataReuniao.split("-").reverse().join("-");
       const nomeArquivoFinal = `Ata_de_Reuniao_${dataFormatadaParaNome}_${assuntoFormatado}.pdf`;
 
-      // 1. A VERDADEIRA MÁGICA DAS MARGENS NATIVAS DO PDF
       const opcoes = {
-        margin: [15, 15, 15, 15], // 15mm de margem em todos os lados para todas as páginas
+        margin: [15, 15, 15, 15],
         filename: nomeArquivoFinal,
-        image: { type: "jpeg", quality: 0.98 }, // Qualidade alta
+        image: { type: "jpeg", quality: 0.98 },
         html2canvas: {
-          scale: 2, // Escala melhorada para textos nítidos
+          scale: 2,
           useCORS: true,
           letterRendering: true,
+          scrollY: 0, // 2. CORREÇÃO: Força a captura a começar do eixo zero absoluto
         },
         jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
-        pagebreak: { mode: ["avoid-all", "css", "legacy"] },
+        // 3. CORREÇÃO: Removido o 'avoid-all' para parar de gerar páginas em branco
+        pagebreak: { mode: ["css", "legacy"] }, 
       };
 
       const classeAntiga = elemento.className;
 
-      // 2. AJUSTE DO CSS ANTES DA FOTO
-      // Largura de 180mm (A4 de 210mm menos as duas margens de 15mm)
-      elemento.className = "bg-white w-[180mm] box-border text-slate-900 mx-auto";
+      // Simplificamos a classe na hora da foto para evitar saltos de layout
+      elemento.className = "bg-white w-[180mm] box-border text-slate-900 mx-auto py-4 px-2";
 
       html2pdf()
         .set(opcoes)
@@ -124,7 +126,6 @@ export default function AtaReuniao({ isOpen, onClose, recarregarAtas }) {
             console.error("Erro ao subir para a nuvem:", error);
             alert("Erro ao salvar a ata na nuvem. Verifique a conexão.");
           } finally {
-            // Restaura as classes originais para a tela continuar bonita
             elemento.className = classeAntiga;
             setIsGenerating(false);
           }
@@ -144,7 +145,6 @@ export default function AtaReuniao({ isOpen, onClose, recarregarAtas }) {
     setPlanoAcao(novoPlano);
   };
 
-  // === MOTOR DO ENTER PARA A TABELA INFINITA ===
   const handleKeyDownPlanoAcao = (e, index) => {
     if (e.key === "Enter") {
       e.preventDefault();
@@ -188,7 +188,6 @@ export default function AtaReuniao({ isOpen, onClose, recarregarAtas }) {
         className="bg-slate-50 dark:bg-slate-900 w-full max-w-4xl h-[95vh] rounded-xl shadow-2xl flex flex-col overflow-hidden border border-slate-200 dark:border-slate-800"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* CABEÇALHO DO MODAL */}
         <div className="flex items-center justify-between px-4 sm:px-6 py-3 sm:py-4 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 shrink-0">
           <h2 className="text-base sm:text-lg font-bold text-slate-800 dark:text-slate-100 truncate pr-2">
             Gerador de Ata
@@ -218,13 +217,16 @@ export default function AtaReuniao({ isOpen, onClose, recarregarAtas }) {
           </div>
         </div>
 
-        {/* ÁREA DA FOLHA */}
-        <div className="flex-1 overflow-y-auto p-4 sm:p-8 bg-slate-200 dark:bg-slate-800 flex justify-center overflow-x-hidden">
+        {/* 4. CORREÇÃO: Adicionado ID 'area-scroll-modal' para o botão de resetar o scroll */}
+        <div 
+          id="area-scroll-modal" 
+          className="flex-1 overflow-y-auto p-4 sm:p-8 bg-slate-200 dark:bg-slate-800 flex justify-center overflow-x-hidden"
+        >
+          {/* 5. CORREÇÃO: Removido o min-h-[297mm] que forçava a criação de folhas em branco extras */}
           <div
             id="conteudo-ata"
-            className="bg-white w-full max-w-[210mm] min-h-[297mm] h-max shadow-lg py-6 px-4 sm:py-10 sm:px-12 text-slate-900 mx-auto transition-all"
+            className="bg-white w-full max-w-[210mm] h-max shadow-lg py-6 px-4 sm:py-10 sm:px-12 text-slate-900 mx-auto transition-all"
           >
-            {/* CABEÇALHO CORPORATIVO CENTRALIZADO */}
             <div className="flex items-center justify-center md:justify-start px-4 py-3 border-b border-slate-100 dark:border-slate-800/50 bg-slate-50/50 dark:bg-slate-900/30">
               <img
                 src="/logo.png"
@@ -254,7 +256,6 @@ export default function AtaReuniao({ isOpen, onClose, recarregarAtas }) {
             </div>
 
             <div className="space-y-6 sm:space-y-8 mt-6">
-              {/* Participantes */}
               <div>
                 <h3 className="font-bold text-base sm:text-lg uppercase text-slate-800 mb-3 sm:mb-4 text-center sm:text-left">
                   Participantes
@@ -293,7 +294,6 @@ export default function AtaReuniao({ isOpen, onClose, recarregarAtas }) {
                 </div>
               </div>
 
-              {/* Assunto */}
               <div
                 className="pt-4 sm:pt-6 border-t-2 border-slate-800"
                 style={{ pageBreakInside: "avoid" }}
@@ -320,7 +320,6 @@ export default function AtaReuniao({ isOpen, onClose, recarregarAtas }) {
                 </div>
               </div>
 
-              {/* Desenvolvimento */}
               <div className="pt-4 sm:pt-6 border-t-2 border-slate-800">
                 <h3
                   className="font-bold text-base sm:text-lg uppercase text-slate-800 mb-2 sm:mb-3"
@@ -343,7 +342,6 @@ export default function AtaReuniao({ isOpen, onClose, recarregarAtas }) {
                 )}
               </div>
 
-              {/* TABELA DE PLANO DE AÇÃO */}
               <div className="pt-4 sm:pt-6 border-t-2 border-slate-800">
                 <h3
                   className="font-bold text-base sm:text-lg uppercase text-slate-800 mb-3 sm:mb-4"
