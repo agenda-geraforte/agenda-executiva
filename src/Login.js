@@ -22,9 +22,25 @@ export default function Login({ onLogin, isDarkMode, toggleTheme }) {
   const [successMsg, setSuccessMsg] = useState("");
 
   useEffect(() => {
-    supabase.auth.onAuthStateChange((event, session) => {
-      if (event === "PASSWORD_RECOVERY") changeView("update-password");
-    });
+    // 1. Verificação à prova de balas: checa se o link tem o token de recuperação
+    if (window.location.hash.includes("type=recovery")) {
+      changeView("update-password");
+    }
+
+    // 2. O Listener normal do Supabase (caso o evento dispare no tempo certo)
+    const { data: authListener } = supabase.auth.onAuthStateChange(
+      (event, session) => {
+        if (event === "PASSWORD_RECOVERY") {
+          changeView("update-password");
+        }
+      }
+    );
+
+    return () => {
+      if (authListener && authListener.subscription) {
+        authListener.subscription.unsubscribe();
+      }
+    };
   }, []);
 
   // --- A FUNÇÃO VASSOURA: Troca a tela e limpa tudo ---
@@ -51,7 +67,6 @@ export default function Login({ onLogin, isDarkMode, toggleTheme }) {
         });
         if (error) throw error;
         setSuccessMsg("Conta criada! Faça login para continuar.");
-        // Limpa os campos após registrar com sucesso:
         setEmail("");
         setPassword("");
         setName("");
@@ -62,7 +77,6 @@ export default function Login({ onLogin, isDarkMode, toggleTheme }) {
         });
         if (error) throw error;
 
-        // Limpa a senha por segurança ao logar
         setPassword("");
         onLogin();
       } else if (view === "recover") {
@@ -71,14 +85,22 @@ export default function Login({ onLogin, isDarkMode, toggleTheme }) {
         });
         if (error) throw error;
         setSuccessMsg("Link de recuperação enviado para o seu e-mail!");
-        setEmail(""); // Limpa o email digitado
+        setEmail(""); 
       } else if (view === "update-password") {
         const { error } = await supabase.auth.updateUser({
           password: password,
         });
         if (error) throw error;
-        setSuccessMsg("Senha atualizada com sucesso!");
-        setTimeout(() => changeView("login"), 2000);
+        
+        setSuccessMsg("Senha atualizada com sucesso! Entrando...");
+        
+        // Limpa a URL no navegador para tirar aquele token gigante de lá
+        window.history.replaceState(null, document.title, window.location.pathname);
+        
+        // Aguarda 1.5s para a pessoa ler a mensagem e já entra no sistema
+        setTimeout(() => {
+          onLogin();
+        }, 1500);
       }
     } catch (error) {
       setErrorMsg(error.message || "Ocorreu um erro inesperado.");
@@ -163,7 +185,6 @@ export default function Login({ onLogin, isDarkMode, toggleTheme }) {
               <Lock className="absolute left-3 top-3 w-5 h-5 text-slate-400" />
               <input
                 type="password"
-                // Substitua a linha antiga pela nova abaixo:
                 onKeyDown={(e) => {
                   if (e.key === "Enter") handleAuthAction();
                 }}
