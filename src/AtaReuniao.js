@@ -76,10 +76,9 @@ export default function AtaReuniao({ isOpen, onClose, recarregarAtas }) {
           scrollY: 0, 
         },
         jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
-        // 👇 A MÁGICA ENTRA AQUI 👇
+        // 👇 A MÁGICA ENTRA AQUI: O PDF agora respeita a classe 'evitar-quebra' 👇
         pagebreak: { mode: ["css", "legacy"], avoid: ['.evitar-quebra'] }, 
       };
-      
 
       const classeAntiga = elemento.className;
 
@@ -169,7 +168,8 @@ export default function AtaReuniao({ isOpen, onClose, recarregarAtas }) {
       <div
         key={index}
         style={{ pageBreakInside: "avoid" }}
-        className="min-h-[1.5rem]"
+        // Classe adicionada aqui para proteger as quebras de linha do texto
+        className="min-h-[1.5rem] evitar-quebra"
       >
         {linha}
       </div>
@@ -218,12 +218,10 @@ export default function AtaReuniao({ isOpen, onClose, recarregarAtas }) {
           </div>
         </div>
 
-        {/* 4. CORREÇÃO: Adicionado ID 'area-scroll-modal' para o botão de resetar o scroll */}
         <div 
           id="area-scroll-modal" 
           className="flex-1 overflow-y-auto p-4 sm:p-8 bg-slate-200 dark:bg-slate-800 flex justify-center overflow-x-hidden"
         >
-          {/* 5. CORREÇÃO: Removido o min-h-[297mm] que forçava a criação de folhas em branco extras */}
           <div
             id="conteudo-ata"
             className="bg-white w-full max-w-[210mm] h-max shadow-lg py-6 px-4 sm:py-10 sm:px-12 text-slate-900 mx-auto transition-all"
@@ -368,7 +366,8 @@ export default function AtaReuniao({ isOpen, onClose, recarregarAtas }) {
                     <div
                       key={i}
                       style={{ pageBreakInside: "avoid" }}
-                      className={`grid grid-cols-12 ${
+                      // Classe adicionada aqui para proteger as linhas da tabela
+                      className={`grid grid-cols-12 evitar-quebra ${
                         i !== planoAcao.length - 1
                           ? "border-b border-slate-300"
                           : ""
