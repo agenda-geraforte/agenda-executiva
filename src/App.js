@@ -32,14 +32,15 @@ export default function App() {
   const [selectedYear, setSelectedYear] = useState(
     String(new Date().getFullYear())
   );
-  
-  // 1. ADICIONADO: isCheckingSession para evitar que a tela de login pisque 
-  // antes de o Supabase confirmar se tem alguém logado ou não
+
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isCheckingSession, setIsCheckingSession] = useState(true);
-  
+
   const [isAtaOpen, setIsAtaOpen] = useState(false);
   const [isRecorrentesOpen, setIsRecorrentesOpen] = useState(false);
+
+  // ESTADO NOVO: Controla qual dia está com o modal de Alertas aberto
+  const [dayAlertsOpen, setDayAlertsOpen] = useState(null);
 
   const [isDarkMode, setIsDarkMode] = useState(() => {
     const savedTheme = localStorage.getItem("theme");
@@ -66,16 +67,15 @@ export default function App() {
 
   const toggleTheme = () => setIsDarkMode((prev) => !prev);
 
-  // 2. A MÁGICA DO LOGIN: Olheiro do Supabase para lembrar do usuário
   useEffect(() => {
-    // Verifica o cofre do navegador na primeira vez
     supabase.auth.getSession().then(({ data: { session } }) => {
       setIsAuthenticated(!!session);
       setIsCheckingSession(false);
     });
 
-    // Fica escutando qualquer mudança de login/logout
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
       setIsAuthenticated(!!session);
     });
 
@@ -639,11 +639,42 @@ export default function App() {
     else setDiasExpandidos([...diasExpandidos, idDia]);
   };
 
-  // 3. TELA DE CARREGAMENTO (Evita piscar o login)
+  // FUNÇÃO NOVA: Pula para a tarefa do alerta e pisca ela
+  const jumpToTask = (taskId, dayId) => {
+    setDayAlertsOpen(null); // Fecha o modal
+
+    // Garante que o ano correto está selecionado
+    const taskYear = dayId.split("-")[0];
+    if (taskYear !== selectedYear) {
+      setSelectedYear(taskYear);
+    }
+
+    // Abre a sanfona do dia se estiver fechada
+    if (!diasExpandidos.includes(dayId)) {
+      setDiasExpandidos((prev) => [...prev, dayId]);
+    }
+
+    // Espera a sanfona renderizar e faz o pulo/animação
+    setTimeout(() => {
+      const elemento = document.getElementById(`task-${taskId}`);
+      if (elemento) {
+        elemento.scrollIntoView({ behavior: "smooth", block: "center" });
+
+        // Salva a classe original e adiciona um brilho sutil e elegante
+        const originalClasses = elemento.className;
+        elemento.className = `${originalClasses} bg-amber-500/10 dark:bg-amber-500/20 ring-1 ring-amber-500/30 shadow-sm transition-all duration-500`;
+
+        // Remove o brilho suavemente após 3 segundos
+        setTimeout(() => {
+          elemento.className = originalClasses;
+        }, 3000);
+      }
+    }, 400);
+  };
+
   if (isCheckingSession) {
     return (
       <div className="h-screen w-full flex items-center justify-center bg-slate-50 dark:bg-slate-950 transition-colors">
-        {/* Animação suave para não ficar uma tela branca feia */}
         <div className="animate-pulse flex flex-col items-center">
           <div className="w-12 h-12 rounded-full border-4 border-teal-200 dark:border-teal-900 border-t-teal-600 animate-spin"></div>
         </div>
@@ -651,7 +682,6 @@ export default function App() {
     );
   }
 
-  // 4. RETORNA O LOGIN SE NÃO TIVER SESSÃO
   if (!isAuthenticated) {
     return (
       <Login
@@ -686,12 +716,11 @@ export default function App() {
         className="shrink-0 flex flex-col z-20 bg-white dark:bg-slate-950 border-b border-slate-200 dark:border-slate-800 transition-colors relative"
       >
         <div className="flex items-center justify-center md:justify-start gap-4 md:gap-6 px-4 py-3 border-b border-slate-100 dark:border-slate-800/50 bg-slate-50/50 dark:bg-slate-900/30">
-          
           <div className="shrink-0 flex items-center justify-center p-1.5 rounded-lg border border-transparent dark:bg-slate-50 dark:border-slate-200 dark:shadow-sm transition-all">
-            <img 
-              src="/logo.png" 
-              alt="Geraforte" 
-              className="h-8 md:h-10 w-auto object-contain block" 
+            <img
+              src="/logo.png"
+              alt="Geraforte"
+              className="h-8 md:h-10 w-auto object-contain block"
             />
           </div>
 
@@ -703,7 +732,6 @@ export default function App() {
               Executivo
             </span>
           </div>
-
         </div>
 
         <div className="h-14 flex items-center justify-between px-3 md:px-6">
@@ -1146,34 +1174,48 @@ export default function App() {
                           id={`dia-${idDia}`}
                           className="flex flex-col scroll-mt-16"
                         >
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              toggleDia(idDia);
-                            }}
-                            className={`w-max flex items-center gap-2 md:gap-3 py-2 pr-4 font-bold text-base md:text-lg cursor-pointer transition-colors ${
-                              temAlerta
-                                ? "text-amber-500 dark:text-amber-400"
-                                : "text-slate-700 dark:text-slate-300 hover:text-teal-600 dark:hover:text-teal-400"
-                            }`}
-                          >
-                            <ChevronRight
-                              className={`w-5 h-5 transition-transform duration-300 ${
-                                isDiaAberto ? "rotate-90" : ""
-                              } ${
+                          {/* NOVA ESTRUTURA DO BOTÃO DO DIA COM SININHO SEPARADO */}
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                toggleDia(idDia);
+                              }}
+                              className={`w-max flex items-center gap-2 md:gap-3 py-2 pr-2 font-bold text-base md:text-lg cursor-pointer transition-colors ${
                                 temAlerta
                                   ? "text-amber-500 dark:text-amber-400"
-                                  : "text-slate-400"
+                                  : "text-slate-700 dark:text-slate-300 hover:text-teal-600 dark:hover:text-teal-400"
                               }`}
-                            />
-                            {`${dia < 10 ? "0" + dia : dia}/${
-                              indexMes < 9 ? "0" + (indexMes + 1) : indexMes + 1
-                            }/${selectedYear}`}
+                            >
+                              <ChevronRight
+                                className={`w-5 h-5 transition-transform duration-300 ${
+                                  isDiaAberto ? "rotate-90" : ""
+                                } ${
+                                  temAlerta
+                                    ? "text-amber-500 dark:text-amber-400"
+                                    : "text-slate-400"
+                                }`}
+                              />
+                              {`${dia < 10 ? "0" + dia : dia}/${
+                                indexMes < 9
+                                  ? "0" + (indexMes + 1)
+                                  : indexMes + 1
+                              }/${selectedYear}`}
+                            </button>
 
                             {temAlerta && (
-                              <Bell className="w-4 h-4 ml-1 opacity-80" />
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setDayAlertsOpen(diaFormatadoBusca);
+                                }}
+                                className="p-1.5 rounded-full hover:bg-amber-100 dark:hover:bg-amber-900/30 transition-colors cursor-pointer group"
+                                title="Ver alertas deste dia"
+                              >
+                                <Bell className="w-5 h-5 text-amber-500 dark:text-amber-400 group-hover:scale-110 transition-transform" />
+                              </button>
                             )}
-                          </button>
+                          </div>
 
                           <div
                             className={`transition-all duration-300 ease-in-out overflow-hidden ${
@@ -1615,6 +1657,147 @@ export default function App() {
           </div>
         </main>
       </div>
+
+      {/* NOVO MODAL: Exibe os alertas divididos de forma inteligente */}
+      {dayAlertsOpen &&
+        (() => {
+          // Lógica para descobrir o dia da semana (ex: 3 para quarta-feira)
+          const dataObj = new Date(dayAlertsOpen + "T12:00:00");
+          const diaSemanaIndex = dataObj.getDay(); // 0 a 6 (0 é Domingo)
+          const diasSemana = ["dom", "seg", "ter", "qua", "qui", "sex", "sab"];
+          const diaSemanaTexto = diasSemana[diaSemanaIndex];
+
+          // Filtra o que é alerta crítico único do dia
+          const alertasCriticos = tasks.filter(
+            (t) =>
+              t.has_notification &&
+              t.notification_date === dayAlertsOpen &&
+              !t.completed &&
+              t.day_id !== "RECORRENTE"
+          );
+
+          // Filtra quais rotinas semanais caem nesse dia da semana
+          const rotinasDoDia = tasks.filter((t) => {
+            if (
+              t.day_id !== "RECORRENTE" ||
+              t.completed ||
+              !t.is_recurring ||
+              t.is_recurring === "none"
+            )
+              return false;
+
+            // Se o banco salvou como Array (ex: [1, 3, 5] ou ["seg", "qua"])
+            if (Array.isArray(t.is_recurring)) {
+              return (
+                t.is_recurring.includes(diaSemanaIndex) ||
+                t.is_recurring.includes(String(diaSemanaIndex)) ||
+                t.is_recurring.some((d) =>
+                  String(d).toLowerCase().includes(diaSemanaTexto)
+                )
+              );
+            }
+
+            // Se o banco salvou como String (ex: "1,3,5" ou "seg, qua")
+            const strRec = String(t.is_recurring).toLowerCase();
+            return (
+              strRec.includes(diaSemanaTexto) ||
+              strRec.includes(String(diaSemanaIndex))
+            );
+          });
+
+          return (
+            <div
+              className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 transition-all"
+              onClick={() => setDayAlertsOpen(null)}
+            >
+              <div
+                className="bg-white dark:bg-slate-900 rounded-xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col border border-slate-200 dark:border-slate-700"
+                onClick={(e) => e.stopPropagation()}
+              >
+                {/* Cabeçalho do Modal */}
+                <div className="p-4 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center bg-slate-50 dark:bg-slate-900/50">
+                  <h3 className="font-bold text-slate-800 dark:text-slate-200 flex items-center gap-2">
+                    <CalendarDays className="w-5 h-5 text-teal-600" />
+                    Planejamento do Dia (
+                    {dayAlertsOpen.split("-").reverse().join("/")})
+                  </h3>
+                  <button
+                    onClick={() => setDayAlertsOpen(null)}
+                    className="text-slate-400 hover:text-slate-600 dark:hover:text-white cursor-pointer"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+
+                {/* Corpo do Modal */}
+                <div className="p-4 overflow-y-auto max-h-[60vh] space-y-4 bg-slate-50/30 dark:bg-slate-950/20 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:bg-slate-300 dark:[&::-webkit-scrollbar-thumb]:bg-slate-700 [&::-webkit-scrollbar-track]:bg-transparent">
+                  {/* SEÇÃO 1: ALERTAS CRÍTICOS */}
+                  <div>
+                    <h4 className="text-xs font-bold text-red-500 dark:text-red-400 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                      <Bell className="w-3.5 h-3.5" /> Prazos e Alertas Críticos
+                      ({alertasCriticos.length})
+                    </h4>
+                    {alertasCriticos.length === 0 ? (
+                      <p className="text-xs text-slate-400 italic bg-white dark:bg-slate-800 p-3 rounded-lg border border-slate-100 dark:border-slate-800">
+                        Nenhum prazo crítico para hoje.
+                      </p>
+                    ) : (
+                      <div className="space-y-2">
+                        {alertasCriticos.map((task) => (
+                          <div
+                            key={task.id}
+                            className="p-3 rounded-lg border border-red-100 dark:border-red-950/30 bg-white dark:bg-slate-800 flex flex-col gap-2 shadow-sm"
+                          >
+                            <p className="text-sm font-medium text-slate-800 dark:text-slate-200">
+                              {task.description}
+                            </p>
+                            <div className="flex justify-end">
+                              <button
+                                onClick={() => jumpToTask(task.id, task.day_id)}
+                                className="flex items-center gap-1 text-[11px] font-bold bg-amber-100 hover:bg-amber-200 text-amber-800 dark:bg-amber-900/40 dark:text-amber-400 px-2.5 py-1.5 rounded transition-colors cursor-pointer"
+                              >
+                                <Search className="w-3 h-3" /> VER NA AGENDA
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* SEÇÃO 2: ROTINAS SEMANAIS */}
+                  <div>
+                    <h4 className="text-xs font-bold text-teal-600 dark:text-teal-400 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                      <Repeat className="w-3.5 h-3.5" /> Rotinas Automáticas
+                      deste Dia ({rotinasDoDia.length})
+                    </h4>
+                    {rotinasDoDia.length === 0 ? (
+                      <p className="text-xs text-slate-400 italic bg-white dark:bg-slate-800 p-3 rounded-lg border border-slate-100 dark:border-slate-800">
+                        Nenhuma rotina fixa para este dia da semana.
+                      </p>
+                    ) : (
+                      <div className="space-y-2">
+                        {rotinasDoDia.map((task) => (
+                          <div
+                            key={task.id}
+                            className="p-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 flex flex-col gap-1 shadow-sm"
+                          >
+                            <p className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                              {task.description}
+                            </p>
+                            <span className="text-[10px] text-teal-600 dark:text-teal-400 font-semibold uppercase tracking-wider mt-1 block">
+                              🔄 Rotina Semanal ativa
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
 
       <NotificationCenter tasks={tasks} handleUpdateTask={handleUpdateTask} />
       <AtaReuniao
