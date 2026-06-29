@@ -14,7 +14,6 @@ import {
   FileCheck,
   LogOut,
   Plus,
-  Pencil,
   Trash2,
   Check,
   CalendarDays,
@@ -25,6 +24,7 @@ import {
   X,
   Bell,
   Repeat,
+  Loader2,
 } from "lucide-react";
 
 export default function App() {
@@ -37,10 +37,10 @@ export default function App() {
   const [isCheckingSession, setIsCheckingSession] = useState(true);
 
   const [isAtaOpen, setIsAtaOpen] = useState(false);
+  const [ataEditando, setAtaEditando] = useState(null); // NOVO: Controla rascunho ativo
   const [isRecorrentesOpen, setIsRecorrentesOpen] = useState(false);
-
-  // ESTADO NOVO: Controla qual dia está com o modal de Alertas aberto
   const [dayAlertsOpen, setDayAlertsOpen] = useState(null);
+  const [alertModalTask, setAlertModalTask] = useState(null); // NOVO: Controla o mini-modal de alerta
 
   const [isDarkMode, setIsDarkMode] = useState(() => {
     const savedTheme = localStorage.getItem("theme");
@@ -164,6 +164,16 @@ export default function App() {
   const [tasksLoaded, setTasksLoaded] = useState(false);
   const [atas, setAtas] = useState([]);
 
+  // NOVO: Divisão inteligente das atas da barra lateral
+  const atasEmAndamento = useMemo(
+    () => atas.filter((a) => a.status === "rascunho"),
+    [atas]
+  );
+  const atasConcluidas = useMemo(
+    () => atas.filter((a) => a.status !== "rascunho"),
+    [atas]
+  );
+
   const fetchTasks = useCallback(async () => {
     const { data, error } = await supabase.from("tarefas").select("*");
     if (error) {
@@ -187,20 +197,6 @@ export default function App() {
 
         if (!task.completed && taskDate < hojeDate) {
           updatedTask.day_id = idDiaHoje;
-          mudou = true;
-        }
-      }
-
-      if (!task.completed && task.created_at) {
-        const dataCriacao = new Date(task.created_at);
-        const diffTime = Math.abs(hojeDate - dataCriacao);
-        const diasPassados = Math.floor(diffTime / (1000 * 60 * 60 * 24));
-
-        if (diasPassados >= 8 && updatedTask.priority > 1) {
-          updatedTask.priority = 1;
-          mudou = true;
-        } else if (diasPassados >= 4 && updatedTask.priority === 3) {
-          updatedTask.priority = 2;
           mudou = true;
         }
       }
@@ -420,7 +416,6 @@ export default function App() {
     if (calcTab === "padrao") {
       try {
         if (calcExpressao) {
-          // eslint-disable-next-line no-new-func
           const res = new Function("return " + calcExpressao)();
           setCalcResultado(res !== undefined && !isNaN(res) ? res : "...");
         } else setCalcResultado("");
@@ -507,7 +502,6 @@ export default function App() {
                 currentTask.priority === payload.new.priority &&
                 currentTask.description === payload.new.description &&
                 currentTask.type === payload.new.type &&
-                currentTask.eisenhower === payload.new.eisenhower &&
                 currentTask.has_notification === payload.new.has_notification &&
                 currentTask.notification_date === payload.new.notification_date
               ) {
@@ -531,14 +525,8 @@ export default function App() {
       .channel("atas-db-changes")
       .on(
         "postgres_changes",
-        { event: "INSERT", schema: "public", table: "atas" },
-        (payload) => {
-          setAtas((prev) => {
-            const existe = prev.find((item) => item.id === payload.new.id);
-            if (existe) return prev;
-            return [payload.new, ...prev];
-          });
-        }
+        { event: "*", schema: "public", table: "atas" },
+        () => carregarAtas()
       )
       .subscribe();
 
@@ -546,7 +534,7 @@ export default function App() {
       supabase.removeChannel(channelTarefas);
       supabase.removeChannel(channelAtas);
     };
-  }, [isAuthenticated]);
+  }, [isAuthenticated, carregarAtas]);
 
   const handleScrollPrincipal = (e) => {
     if (searchQuery) return;
@@ -569,7 +557,6 @@ export default function App() {
       priority: 3,
       type: "S",
       description: "",
-      eisenhower: "P - importante / não urgente",
       has_notification: false,
       notification_date: null,
       is_recurring: "none",
@@ -593,7 +580,6 @@ export default function App() {
       priority: 3,
       type: "S",
       description: description,
-      eisenhower: "P - importante / não urgente",
       has_notification: true,
       notification_date: null,
       is_recurring: diasSelecionados,
@@ -639,32 +625,27 @@ export default function App() {
     else setDiasExpandidos([...diasExpandidos, idDia]);
   };
 
-  // FUNÇÃO NOVA: Pula para a tarefa do alerta e pisca ela
   const jumpToTask = (taskId, dayId) => {
-    setDayAlertsOpen(null); // Fecha o modal
+    setDayAlertsOpen(null);
 
-    // Garante que o ano correto está selecionado
     const taskYear = dayId.split("-")[0];
     if (taskYear !== selectedYear) {
       setSelectedYear(taskYear);
     }
 
-    // Abre a sanfona do dia se estiver fechada
     if (!diasExpandidos.includes(dayId)) {
       setDiasExpandidos((prev) => [...prev, dayId]);
     }
 
-    // Espera a sanfona renderizar e faz o pulo/animação
     setTimeout(() => {
       const elemento = document.getElementById(`task-${taskId}`);
       if (elemento) {
         elemento.scrollIntoView({ behavior: "smooth", block: "center" });
 
-        // Salva a classe original e adiciona um brilho sutil e elegante
+        // REFINAMENTO: Brilho sutil e corporativo na linha
         const originalClasses = elemento.className;
         elemento.className = `${originalClasses} bg-amber-500/10 dark:bg-amber-500/20 ring-1 ring-amber-500/30 shadow-sm transition-all duration-500`;
 
-        // Remove o brilho suavemente após 3 segundos
         setTimeout(() => {
           elemento.className = originalClasses;
         }, 3000);
@@ -676,7 +657,7 @@ export default function App() {
     return (
       <div className="h-screen w-full flex items-center justify-center bg-slate-50 dark:bg-slate-950 transition-colors">
         <div className="animate-pulse flex flex-col items-center">
-          <div className="w-12 h-12 rounded-full border-4 border-teal-200 dark:border-teal-900 border-t-teal-600 animate-spin"></div>
+          <Loader2 className="w-10 h-12 text-teal-600 animate-spin" />
         </div>
       </div>
     );
@@ -723,7 +704,6 @@ export default function App() {
               className="h-8 md:h-10 w-auto object-contain block"
             />
           </div>
-
           <div className="flex flex-col">
             <h1 className="text-xl md:text-2xl font-black text-slate-800 dark:text-slate-100 leading-none tracking-tight">
               PLANEJADOR
@@ -739,11 +719,13 @@ export default function App() {
             <button
               onClick={(e) => {
                 e.stopPropagation();
+                setAtaEditando(null); // Abre nova ata vazia
                 setIsAtaOpen(true);
                 setIsSearchOpen(false);
                 setSearchQuery("");
               }}
               className="p-2 rounded-lg cursor-pointer hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors"
+              title="Nova Ata de Reunião"
             >
               <FileText className="w-5 h-5 text-teal-600 dark:text-teal-500" />
             </button>
@@ -1028,7 +1010,7 @@ export default function App() {
             <ChevronRight className="w-4 h-4" />
           </button>
 
-          <div className="flex-1 flex flex-col overflow-hidden mt-12 px-3 pb-3">
+          <div className="flex-1 flex flex-col overflow-hidden mt-12 px-2 pb-3 select-none">
             <div className="shrink-0 flex flex-col">
               <button
                 onClick={() => {
@@ -1054,17 +1036,64 @@ export default function App() {
                   </span>
                 </div>
               </button>
-
               <div className="w-full h-px bg-slate-200 dark:bg-slate-800 my-3 shrink-0"></div>
             </div>
 
-            <div className="flex-1 overflow-y-auto space-y-2 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:bg-slate-300 dark:[&::-webkit-scrollbar-thumb]:bg-slate-700 [&::-webkit-scrollbar-track]:bg-transparent pr-1">
-              {atas.length === 0 ? (
-                <div className="text-xs text-slate-400 dark:text-slate-500 italic text-center p-4 whitespace-normal">
-                  {isSidebarExpanded && "Nenhuma ata encontrada."}
+            {/* BARRA LATERAL DIVIDIDA EM ANDAMENTO E CONCLUÍDAS */}
+            <div className="flex-1 overflow-y-auto space-y-4 pr-1 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:bg-slate-300 dark:[&::-webkit-scrollbar-thumb]:bg-slate-700 [&::-webkit-scrollbar-track]:bg-transparent">
+              {/* SEÇÃO RASCUNHOS */}
+              {isSidebarExpanded && (
+                <div className="text-[11px] font-black text-amber-600 dark:text-amber-500 uppercase tracking-widest px-1">
+                  Atas em Andamento ({atasEmAndamento.length})
                 </div>
-              ) : (
-                atas.map((ata) => (
+              )}
+              <div className="space-y-1">
+                {atasEmAndamento.map((ata) => (
+                  <div
+                    key={ata.id}
+                    onClick={() => {
+                      if (!isSidebarExpanded) setIsSidebarExpanded(true);
+                      else {
+                        setAtaEditando(ata);
+                        setIsAtaOpen(true);
+                      }
+                    }}
+                    className={`flex items-center rounded-lg cursor-pointer bg-amber-500/5 hover:bg-amber-500/10 border border-dashed border-amber-500/20 transition-colors group shrink-0 ${
+                      isSidebarExpanded
+                        ? "p-2 justify-start"
+                        : "p-2.5 justify-center"
+                    }`}
+                    title="Clique para continuar editando este rascunho"
+                  >
+                    <FileText className="w-5 h-5 shrink-0 text-amber-500" />
+                    <div
+                      className={`overflow-hidden flex-shrink-0 transition-all duration-300 ${
+                        isSidebarExpanded
+                          ? "w-[180px] ml-2 opacity-100"
+                          : "w-0 opacity-0"
+                      }`}
+                    >
+                      <span className="block font-bold text-xs truncate text-amber-800 dark:text-amber-400 uppercase">
+                        {ata.assunto || "Rascunho sem assunto"}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+                {isSidebarExpanded && atasEmAndamento.length === 0 && (
+                  <div className="text-[10px] text-slate-400 dark:text-slate-500 italic p-1">
+                    Nenhum rascunho.
+                  </div>
+                )}
+              </div>
+
+              {/* SEÇÃO CONCLUÍDAS */}
+              {isSidebarExpanded && (
+                <div className="text-[11px] font-black text-teal-600 dark:text-teal-500 uppercase tracking-widest px-1 pt-2">
+                  Atas Concluídas ({atasConcluidas.length})
+                </div>
+              )}
+              <div className="space-y-1">
+                {atasConcluidas.map((ata) => (
                   <div
                     key={ata.id}
                     onClick={() => {
@@ -1073,31 +1102,31 @@ export default function App() {
                     }}
                     className={`flex items-center rounded-lg cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800/60 transition-colors group shrink-0 ${
                       isSidebarExpanded
-                        ? "p-3 justify-start"
+                        ? "p-2 justify-start"
                         : "p-2.5 justify-center"
                     }`}
-                    title={`Clique para baixar: ${ata.assunto}`}
+                    title={`Download: ${ata.assunto}`}
                   >
-                    <FileCheck className="w-6 h-6 shrink-0 text-teal-600 dark:text-teal-500 group-hover:scale-110 transition-transform duration-200" />
+                    <FileCheck className="w-5 h-5 shrink-0 text-teal-600 dark:text-teal-500" />
                     <div
                       className={`overflow-hidden flex-shrink-0 transition-all duration-300 ${
                         isSidebarExpanded
-                          ? "w-52 ml-3 opacity-100"
-                          : "w-0 ml-0 opacity-0"
+                          ? "w-[180px] ml-2 opacity-100"
+                          : "w-0 opacity-0"
                       }`}
                     >
-                      <span className="block w-52 font-semibold text-sm whitespace-nowrap truncate text-slate-700 dark:text-slate-200">
-                        ATA REUNIÃO - {ata.assunto}
+                      <span className="block font-semibold text-xs truncate text-slate-700 dark:text-slate-200">
+                        {ata.assunto}
                       </span>
-                      <span className="block text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">
+                      <span className="block text-[9px] text-slate-400 dark:text-slate-500">
                         {ata.data_reuniao
                           ? ata.data_reuniao.split("-").reverse().join("/")
                           : "---"}
                       </span>
                     </div>
                   </div>
-                ))
-              )}
+                ))}
+              </div>
             </div>
           </div>
         </aside>
@@ -1147,16 +1176,15 @@ export default function App() {
 
               return (
                 <div key={`${selectedYear}-${nomeMes}`} className="relative">
-                  <div className="sticky top-0 z-10 py-2 md:py-3 border-b shadow-sm backdrop-blur-md font-bold text-base md:text-lg tracking-wide uppercase bg-slate-50/90 dark:bg-slate-950/90 border-slate-200 dark:border-slate-800 text-teal-700 dark:text-teal-500 transition-colors">
+                  <div className="sticky top-0 z-10 py-2 md:py-2.5 border-b shadow-sm backdrop-blur-md font-bold text-base md:text-md tracking-wide uppercase bg-slate-50/90 dark:bg-slate-950/90 border-slate-200 dark:border-slate-800 text-teal-700 dark:text-teal-500 transition-colors">
                     {nomeMes} {selectedYear}
                   </div>
 
-                  <div className="py-3 md:py-6 space-y-2">
+                  <div className="py-2 md:py-4 space-y-1">
                     {diasRenderizaveis.map((dia) => {
                       const idDia = `${selectedYear}-${indexMes + 1}-${dia}`;
                       const isDiaAberto = diasExpandidos.includes(idDia);
                       const tarefasDoDia = tasksByDay[idDia] || [];
-
                       const diaFormatadoBusca = `${selectedYear}-${String(
                         indexMes + 1
                       ).padStart(2, "0")}-${String(dia).padStart(2, "0")}`;
@@ -1165,7 +1193,8 @@ export default function App() {
                         (t) =>
                           t.has_notification &&
                           t.notification_date === diaFormatadoBusca &&
-                          !t.completed
+                          !t.completed &&
+                          t.day_id !== "RECORRENTE"
                       );
 
                       return (
@@ -1174,21 +1203,20 @@ export default function App() {
                           id={`dia-${idDia}`}
                           className="flex flex-col scroll-mt-16"
                         >
-                          {/* NOVA ESTRUTURA DO BOTÃO DO DIA COM SININHO SEPARADO */}
                           <div className="flex items-center gap-2">
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
                                 toggleDia(idDia);
                               }}
-                              className={`w-max flex items-center gap-2 md:gap-3 py-2 pr-2 font-bold text-base md:text-lg cursor-pointer transition-colors ${
+                              className={`w-max flex items-center gap-2 md:gap-3 py-1 pr-2 font-bold text-base md:text-md cursor-pointer transition-colors ${
                                 temAlerta
                                   ? "text-amber-500 dark:text-amber-400"
                                   : "text-slate-700 dark:text-slate-300 hover:text-teal-600 dark:hover:text-teal-400"
                               }`}
                             >
                               <ChevronRight
-                                className={`w-5 h-5 transition-transform duration-300 ${
+                                className={`w-4 h-4 transition-transform duration-300 ${
                                   isDiaAberto ? "rotate-90" : ""
                                 } ${
                                   temAlerta
@@ -1209,10 +1237,9 @@ export default function App() {
                                   e.stopPropagation();
                                   setDayAlertsOpen(diaFormatadoBusca);
                                 }}
-                                className="p-1.5 rounded-full hover:bg-amber-100 dark:hover:bg-amber-900/30 transition-colors cursor-pointer group"
-                                title="Ver alertas deste dia"
+                                className="p-1 rounded-full hover:bg-amber-100 dark:hover:bg-amber-900/30 transition-colors cursor-pointer group"
                               >
-                                <Bell className="w-5 h-5 text-amber-500 dark:text-amber-400 group-hover:scale-110 transition-transform" />
+                                <Bell className="w-4 h-4 text-amber-500 dark:text-amber-400 group-hover:scale-110 transition-transform" />
                               </button>
                             )}
                           </div>
@@ -1224,31 +1251,37 @@ export default function App() {
                                 : "max-h-0 opacity-0"
                             }`}
                           >
-                            <div className="ml-[11px] pl-3 md:pl-6 py-2 border-l-2 border-slate-200 dark:border-slate-800 space-y-3 transition-colors">
+                            <div className="ml-[11px] pl-2 md:pl-4 py-1 border-l-2 border-slate-200 dark:border-slate-800 space-y-1 transition-colors">
                               {tarefasDoDia.length > 0 && (
                                 <div className="w-full">
                                   <table className="w-full text-left border-collapse block md:table">
                                     <thead className="hidden md:table-header-group">
-                                      <tr className="text-xs uppercase tracking-wider font-bold border-b bg-slate-50 dark:bg-slate-900/80 border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 transition-colors">
-                                        <th className="p-3 w-12 text-center">
+                                      <tr className="text-[11px] uppercase tracking-wider font-bold border-b bg-slate-50 dark:bg-slate-900/80 border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 transition-colors">
+                                        <th className="p-1.5 w-10 text-center">
                                           Ok
                                         </th>
-                                        <th className="p-3 w-20 text-center">
-                                          Prioridade
+                                        {/* OPTIMIZAÇÃO: Coluna encolhida de prioridade */}
+                                        <th
+                                          className="p-1.5 w-10 text-center"
+                                          title="Prioridade"
+                                        >
+                                          Prio.
                                         </th>
-                                        <th className="p-3 w-16 text-center">
+                                        <th className="p-1.5 w-14 text-center">
                                           Escopo
                                         </th>
-                                        <th className="p-3 w-auto">
-                                          Descrição da Tarefa
+                                        {/* OPTIMIZAÇÃO: Coluna de descrição expandida */}
+                                        <th className="p-1.5 w-full text-left">
+                                          Descrição da Tarefa (Clique para
+                                          Editar)
                                         </th>
-                                        <th className="p-3 w-56">
-                                          Matriz Eisenhower
-                                        </th>
-                                        <th className="p-3 w-24 text-center">
+                                        <th
+                                          className="p-1.5 w-10 text-center"
+                                          title="Notificação"
+                                        >
                                           Alerta
                                         </th>
-                                        <th className="p-3 w-20 text-center">
+                                        <th className="p-1.5 w-14 text-center">
                                           Ações
                                         </th>
                                       </tr>
@@ -1259,7 +1292,8 @@ export default function App() {
                                           key={task.id}
                                           id={`task-${task.id}`}
                                           onClick={(e) => e.stopPropagation()}
-                                          className={`block md:table-row transition-all duration-150 border border-slate-200 dark:border-slate-800 md:border-none rounded-xl mb-4 md:mb-0 p-2 md:p-0 shadow-sm md:shadow-none bg-white dark:bg-slate-900/40 md:bg-transparent ${
+                                          /* OPTIMIZAÇÃO: Espaçamento reduzido pela metade */
+                                          className={`block md:table-row transition-all duration-150 border border-slate-200 dark:border-slate-800 md:border-none rounded-xl mb-2 md:mb-0 p-1 md:p-0 shadow-sm md:shadow-none bg-white dark:bg-slate-900/40 md:bg-transparent ${
                                             task.completed
                                               ? "opacity-60 md:bg-slate-100/60 md:dark:bg-slate-800/20"
                                               : ""
@@ -1267,12 +1301,12 @@ export default function App() {
                                             matches.some(
                                               (m) => m.id === task.id
                                             )
-                                              ? "ring-2 ring-amber-400 md:ring-0 md:bg-amber-500/10 md:dark:bg-amber-500/5"
+                                              ? "ring-1 ring-amber-400 md:bg-amber-500/5"
                                               : ""
                                           }`}
                                         >
-                                          <td className="flex justify-between items-center md:table-cell p-2 md:p-3 border-b md:border-none border-slate-100 dark:border-slate-800/50 text-center">
-                                            <span className="md:hidden text-xs font-bold text-slate-400 uppercase tracking-widest">
+                                          <td className="flex justify-between items-center md:table-cell p-1 md:p-1.5 border-b md:border-none border-slate-100 dark:border-slate-800/50 text-center">
+                                            <span className="md:hidden text-[10px] font-bold text-slate-400 uppercase tracking-widest">
                                               Status
                                             </span>
                                             <button
@@ -1282,20 +1316,20 @@ export default function App() {
                                                   completed: !task.completed,
                                                 });
                                               }}
-                                              className={`w-6 h-6 md:w-5 md:h-5 mx-0 md:mx-auto rounded-full border-2 border-amber-500 flex items-center justify-center cursor-pointer transition-all ${
+                                              className={`w-5 h-5 mx-0 md:mx-auto rounded-full border-2 border-amber-500 flex items-center justify-center cursor-pointer transition-all ${
                                                 task.completed
                                                   ? "bg-amber-500"
                                                   : "bg-transparent hover:bg-amber-500/10"
                                               }`}
                                             >
                                               {task.completed && (
-                                                <Check className="w-4 h-4 md:w-3 md:h-3 text-white stroke-[4]" />
+                                                <Check className="w-3 h-3 text-white stroke-[4]" />
                                               )}
                                             </button>
                                           </td>
 
-                                          <td className="flex justify-between items-center md:table-cell p-2 md:p-3 border-b md:border-none border-slate-100 dark:border-slate-800/50 text-center">
-                                            <span className="md:hidden text-xs font-bold text-slate-400 uppercase tracking-widest">
+                                          <td className="flex justify-between items-center md:table-cell p-1 md:p-1.5 border-b md:border-none border-slate-100 dark:border-slate-800/50 text-center">
+                                            <span className="md:hidden text-[10px] font-bold text-slate-400 uppercase tracking-widest">
                                               Prioridade
                                             </span>
                                             <select
@@ -1315,7 +1349,7 @@ export default function App() {
                                                   false
                                                 )
                                               }
-                                              className={`w-auto md:w-full text-center text-sm font-black p-1.5 md:p-1 rounded bg-slate-100 dark:bg-slate-800 border-none outline-none cursor-pointer transition-colors ${
+                                              className={`w-max mx-auto text-center text-xs font-black px-1.5 py-1 rounded bg-slate-100 dark:bg-slate-800 border-none outline-none cursor-pointer transition-colors ${
                                                 task.priority === 1
                                                   ? "text-red-500"
                                                   : task.priority === 2
@@ -1329,8 +1363,8 @@ export default function App() {
                                             </select>
                                           </td>
 
-                                          <td className="flex justify-between items-center md:table-cell p-2 md:p-3 border-b md:border-none border-slate-100 dark:border-slate-800/50 text-center">
-                                            <span className="md:hidden text-xs font-bold text-slate-400 uppercase tracking-widest">
+                                          <td className="flex justify-between items-center md:table-cell p-1 md:p-1.5 border-b md:border-none border-slate-100 dark:border-slate-800/50 text-center">
+                                            <span className="md:hidden text-[10px] font-bold text-slate-400 uppercase tracking-widest">
                                               Escopo
                                             </span>
                                             <select
@@ -1346,18 +1380,19 @@ export default function App() {
                                                   false
                                                 )
                                               }
-                                              className="w-auto md:w-full text-center text-xs font-bold p-1.5 md:p-1 rounded bg-slate-100 dark:bg-slate-800 border-none outline-none cursor-pointer text-slate-700 dark:text-slate-300"
+                                              className="w-auto md:w-full text-center text-xs font-bold p-1 rounded bg-slate-100 dark:bg-slate-800 border-none outline-none cursor-pointer text-slate-700 dark:text-slate-300"
                                             >
                                               <option value="S">S</option>
                                               <option value="P">P</option>
                                             </select>
                                           </td>
 
+                                          {/* OPTIMIZAÇÃO: Coluna de descrição com quebra de linha inteligente e clique para editar */}
                                           <td
-                                            className="flex flex-col md:table-cell p-2 md:p-3 border-b md:border-none border-slate-100 dark:border-slate-800/50 gap-1 md:gap-0"
+                                            className="flex flex-col md:table-cell p-1 md:p-1.5 border-b md:border-none border-slate-100 dark:border-slate-800/50 gap-1 md:gap-0"
                                             onClick={(e) => e.stopPropagation()}
                                           >
-                                            <span className="md:hidden text-xs font-bold text-slate-400 uppercase tracking-widest">
+                                            <span className="md:hidden text-[10px] font-bold text-slate-400 uppercase tracking-widest">
                                               Descrição da Tarefa
                                             </span>
                                             {task.isEditing ? (
@@ -1369,41 +1404,27 @@ export default function App() {
                                                 onBlur={(e) => {
                                                   const value =
                                                     e.target.value.trim();
-
-                                                  if (value === "") {
+                                                  if (value === "")
                                                     handleDeleteTask(task.id);
-                                                  } else {
-                                                    const currentDesc =
-                                                      task.description || "";
-                                                    if (value !== currentDesc) {
-                                                      handleUpdateTask(
-                                                        task.id,
-                                                        {
-                                                          description:
-                                                            e.target.value,
-                                                          isEditing: false,
-                                                        },
-                                                        true
-                                                      );
-                                                    } else {
-                                                      handleUpdateTask(
-                                                        task.id,
-                                                        { isEditing: false },
-                                                        false
-                                                      );
-                                                    }
-                                                  }
+                                                  else
+                                                    handleUpdateTask(
+                                                      task.id,
+                                                      {
+                                                        description:
+                                                          e.target.value,
+                                                        isEditing: false,
+                                                      },
+                                                      true
+                                                    );
                                                 }}
                                                 onKeyDown={(e) => {
                                                   const value =
                                                     e.target.value.trim();
-
                                                   if (e.key === "Enter") {
                                                     e.preventDefault();
-
-                                                    if (value === "") {
+                                                    if (value === "")
                                                       handleDeleteTask(task.id);
-                                                    } else {
+                                                    else {
                                                       handleUpdateTask(
                                                         task.id,
                                                         {
@@ -1421,28 +1442,27 @@ export default function App() {
                                                     e.key === "Escape"
                                                   ) {
                                                     e.preventDefault();
-
-                                                    if (value === "") {
-                                                      handleDeleteTask(task.id);
-                                                    } else {
-                                                      handleUpdateTask(
-                                                        task.id,
-                                                        {
-                                                          description:
-                                                            e.target.value,
-                                                          isEditing: false,
-                                                        },
-                                                        true
-                                                      );
-                                                    }
+                                                    handleUpdateTask(
+                                                      task.id,
+                                                      { isEditing: false },
+                                                      false
+                                                    );
                                                   }
                                                 }}
-                                                className="w-full bg-slate-100 dark:bg-slate-800 md:bg-transparent px-2 py-2 md:py-1 outline-none text-base md:text-sm rounded md:border-b border-teal-500 text-slate-800 dark:text-slate-200"
+                                                className="w-full bg-slate-100 dark:bg-slate-800 px-2 py-1 outline-none text-sm rounded border-b border-teal-500 text-slate-800 dark:text-slate-200"
                                                 autoFocus
                                               />
                                             ) : (
                                               <div
-                                                className={`px-0 md:px-2 py-1 text-base md:text-sm ${
+                                                onClick={() => {
+                                                  if (!task.completed)
+                                                    handleUpdateTask(
+                                                      task.id,
+                                                      { isEditing: true },
+                                                      false
+                                                    );
+                                                }}
+                                                className={`px-1 py-0.5 text-sm cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800/50 rounded transition-colors break-words whitespace-normal block w-full text-left ${
                                                   task.completed
                                                     ? "line-through text-slate-400"
                                                     : "text-slate-800 dark:text-slate-200"
@@ -1453,180 +1473,68 @@ export default function App() {
                                                   searchQuery,
                                                   task.id
                                                 ) || (
-                                                  <span className="italic text-slate-400">
-                                                    Sem descrição...
+                                                  <span className="italic text-slate-400 text-xs">
+                                                    Clique para adicionar
+                                                    descrição...
                                                   </span>
                                                 )}
                                               </div>
                                             )}
                                           </td>
 
-                                          <td className="flex flex-col md:table-cell p-2 md:p-3 border-b md:border-none border-slate-100 dark:border-slate-800/50 gap-1 md:gap-0 text-center">
-                                            <span className="md:hidden text-xs font-bold text-slate-400 uppercase tracking-widest text-left">
-                                              Matriz Eisenhower
-                                            </span>
-                                            <select
-                                              onClick={(e) =>
-                                                e.stopPropagation()
-                                              }
-                                              disabled={task.completed}
-                                              value={task.eisenhower}
-                                              onChange={(e) =>
-                                                handleUpdateTask(
-                                                  task.id,
-                                                  {
-                                                    eisenhower: e.target.value,
-                                                  },
-                                                  false
-                                                )
-                                              }
-                                              className="w-full text-sm md:text-xs p-2 md:p-1 rounded bg-slate-100 dark:bg-slate-800 border-none outline-none cursor-pointer text-slate-600 dark:text-slate-300 text-left md:text-center"
-                                            >
-                                              <option value="F - urgente & importante">
-                                                F - urgente & importante
-                                              </option>
-                                              <option value="P - importante / não urgente">
-                                                P - importante / não urgente
-                                              </option>
-                                              <option value="D - urgente / não importante">
-                                                D - urgente / não importante
-                                              </option>
-                                              <option value="E/TL - não urgente & não importante">
-                                                E/TL - não urgente & não
-                                                importante
-                                              </option>
-                                            </select>
-                                          </td>
-
-                                          <td className="flex justify-between items-center md:table-cell p-2 md:p-3 border-b md:border-none border-slate-100 dark:border-slate-800/50 text-center">
-                                            <span className="md:hidden text-xs font-bold text-slate-400 uppercase tracking-widest">
+                                          <td className="flex justify-between items-center md:table-cell p-1 md:p-1.5 border-b md:border-none border-slate-100 dark:border-slate-800/50 text-center">
+                                            <span className="md:hidden text-[10px] font-bold text-slate-400 uppercase tracking-widest">
                                               Alerta
                                             </span>
-                                            <div className="flex flex-col items-center justify-center gap-1.5 min-h-[40px]">
+                                            <div className="flex items-center justify-center">
                                               <button
                                                 onClick={(e) => {
                                                   e.stopPropagation();
-                                                  const isNowActive =
-                                                    !task.has_notification;
-
-                                                  const parts =
-                                                    task.day_id.split("-");
-                                                  const defaultDate = `${
-                                                    parts[0]
-                                                  }-${parts[1].padStart(
-                                                    2,
-                                                    "0"
-                                                  )}-${parts[2].padStart(
-                                                    2,
-                                                    "0"
-                                                  )}`;
-
-                                                  handleUpdateTask(
-                                                    task.id,
-                                                    {
-                                                      has_notification:
-                                                        isNowActive,
-                                                      notification_date:
-                                                        isNowActive &&
-                                                        !task.notification_date
-                                                          ? defaultDate
-                                                          : task.notification_date,
-                                                    },
-                                                    true
-                                                  );
+                                                  setAlertModalTask(task); // Abre o mini-modal para esta tarefa
                                                 }}
-                                                className={`p-1.5 rounded-full transition-colors ${
+                                                className={`p-1.5 mx-auto rounded-full transition-colors cursor-pointer ${
                                                   task.has_notification
-                                                    ? "bg-amber-100 text-amber-600 dark:bg-amber-900/50 dark:text-amber-400 ring-2 ring-amber-400/50"
+                                                    ? "bg-amber-100 text-amber-600 dark:bg-amber-900/50 dark:text-amber-400 ring-1 ring-amber-400/50"
                                                     : "text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800"
                                                 }`}
                                               >
-                                                <Bell className="w-4 h-4 md:w-4 md:h-4" />
+                                                <Bell className="w-3.5 h-3.5" />
                                               </button>
-
-                                              {task.has_notification && (
-                                                <input
-                                                  type="date"
-                                                  value={
-                                                    task.notification_date || ""
-                                                  }
-                                                  onClick={(e) =>
-                                                    e.stopPropagation()
-                                                  }
-                                                  onChange={(e) =>
-                                                    handleUpdateTask(
-                                                      task.id,
-                                                      {
-                                                        notification_date:
-                                                          e.target.value,
-                                                      },
-                                                      true
-                                                    )
-                                                  }
-                                                  className="text-[10px] md:text-xs w-full max-w-[110px] p-0.5 px-1 border border-amber-300 dark:border-amber-700/50 rounded bg-amber-50 dark:bg-amber-900/20 text-amber-800 dark:text-amber-200 outline-none cursor-pointer"
-                                                />
-                                              )}
                                             </div>
                                           </td>
 
-                                          <td className="flex md:table-cell items-center justify-between md:justify-center p-3 md:p-3 bg-slate-50 dark:bg-slate-900/50 md:bg-transparent rounded-b-lg md:rounded-none mt-1 md:mt-0">
-                                            <span className="md:hidden text-xs font-bold text-slate-400 uppercase tracking-widest">
+                                          {/* OPTIMIZAÇÃO: Sem o ícone do lápis feio, apenas o botão de lixo */}
+                                          <td className="flex md:table-cell items-center justify-between md:justify-center p-1.5 md:p-1.5 bg-slate-50 dark:bg-slate-900/50 md:bg-transparent rounded-b-lg md:rounded-none">
+                                            <span className="md:hidden text-[10px] font-bold text-slate-400 uppercase tracking-widest">
                                               Ações
                                             </span>
-                                            <div className="flex items-center justify-center gap-2 md:gap-1">
+                                            <div className="flex items-center justify-center mx-auto">
                                               {task.isEditing ? (
                                                 <button
                                                   onClick={(e) => {
                                                     e.stopPropagation();
                                                     handleUpdateTask(
                                                       task.id,
-                                                      {
-                                                        description:
-                                                          task.description,
-                                                        isEditing: false,
-                                                      },
+                                                      { isEditing: false },
                                                       true
                                                     );
                                                   }}
-                                                  className="p-2 md:p-1 rounded cursor-pointer bg-teal-100 dark:bg-teal-900/30 md:bg-transparent transition-colors hover:bg-slate-200 dark:hover:bg-slate-800 text-teal-600 hover:text-teal-500 flex items-center gap-1"
+                                                  className="p-1 rounded bg-teal-100 text-teal-600 dark:bg-teal-900/30 dark:text-teal-400"
                                                 >
-                                                  <Check className="w-5 h-5 md:w-4 md:h-4 stroke-[3]" />
-                                                  <span className="md:hidden text-xs font-bold">
-                                                    SALVAR
-                                                  </span>
+                                                  <Check className="w-4 h-4 stroke-[3]" />
                                                 </button>
                                               ) : (
                                                 <button
-                                                  disabled={task.completed}
                                                   onClick={(e) => {
                                                     e.stopPropagation();
-                                                    handleUpdateTask(
-                                                      task.id,
-                                                      { isEditing: true },
-                                                      false
-                                                    );
+                                                    handleDeleteTask(task.id);
                                                   }}
-                                                  className="p-2 md:p-1 rounded cursor-pointer bg-slate-200 dark:bg-slate-800 md:bg-transparent transition-colors hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-400 hover:text-amber-500 flex items-center gap-1"
+                                                  className="p-1 rounded text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20"
+                                                  title="Excluir tarefa"
                                                 >
-                                                  <Pencil className="w-4 h-4 md:w-3.5 md:h-3.5" />
-                                                  <span className="md:hidden text-xs font-bold">
-                                                    EDITAR
-                                                  </span>
+                                                  <Trash2 className="w-3.5 h-3.5" />
                                                 </button>
                                               )}
-                                              <div className="w-px h-6 bg-slate-300 dark:bg-slate-700 md:hidden"></div>
-                                              <button
-                                                onClick={(e) => {
-                                                  e.stopPropagation();
-                                                  handleDeleteTask(task.id);
-                                                }}
-                                                className="p-2 md:p-1 rounded cursor-pointer transition-colors text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 flex items-center gap-1"
-                                              >
-                                                <Trash2 className="w-4 h-4 md:w-3.5 md:h-3.5" />
-                                                <span className="md:hidden text-xs font-bold text-red-500">
-                                                  EXCLUIR
-                                                </span>
-                                              </button>
                                             </div>
                                           </td>
                                         </tr>
@@ -1640,10 +1548,10 @@ export default function App() {
                                   e.stopPropagation();
                                   handleAddTask(idDia);
                                 }}
-                                className="flex items-center gap-2 px-4 py-2.5 md:px-3 md:py-1.5 text-sm md:text-xs font-bold rounded-lg border-2 border-dashed cursor-pointer transition-all border-slate-300 dark:border-slate-800 text-slate-500 dark:text-slate-400 hover:border-teal-600 dark:hover:border-teal-500 hover:text-teal-600 dark:hover:text-teal-400 bg-slate-50 dark:bg-slate-900/20 w-full md:w-auto justify-center md:justify-start mt-2"
+                                className="flex items-center gap-1.5 py-1 px-3 text-xs font-bold rounded-lg border-2 border-dashed border-slate-300 dark:border-slate-800 text-slate-500 dark:text-slate-400 hover:border-teal-600 hover:text-teal-600 bg-slate-50 dark:bg-slate-900/20 w-full md:w-auto justify-center md:justify-start"
                               >
-                                <Plus className="w-4 h-4 md:w-3.5 md:h-3.5" />{" "}
-                                Adicionar Tarefa
+                                <Plus className="w-3.5 h-3.5" /> Adicionar
+                                Tarefa
                               </button>
                             </div>
                           </div>
@@ -1658,16 +1566,14 @@ export default function App() {
         </main>
       </div>
 
-      {/* NOVO MODAL: Exibe os alertas divididos de forma inteligente */}
+      {/* MODAL DOS ALERTAS COM ESTILO DE SCROLL IMPECÁVEL */}
       {dayAlertsOpen &&
         (() => {
-          // Lógica para descobrir o dia da semana (ex: 3 para quarta-feira)
           const dataObj = new Date(dayAlertsOpen + "T12:00:00");
-          const diaSemanaIndex = dataObj.getDay(); // 0 a 6 (0 é Domingo)
+          const diaSemanaIndex = dataObj.getDay();
           const diasSemana = ["dom", "seg", "ter", "qua", "qui", "sex", "sab"];
           const diaSemanaTexto = diasSemana[diaSemanaIndex];
 
-          // Filtra o que é alerta crítico único do dia
           const alertasCriticos = tasks.filter(
             (t) =>
               t.has_notification &&
@@ -1676,7 +1582,6 @@ export default function App() {
               t.day_id !== "RECORRENTE"
           );
 
-          // Filtra quais rotinas semanais caem nesse dia da semana
           const rotinasDoDia = tasks.filter((t) => {
             if (
               t.day_id !== "RECORRENTE" ||
@@ -1685,8 +1590,6 @@ export default function App() {
               t.is_recurring === "none"
             )
               return false;
-
-            // Se o banco salvou como Array (ex: [1, 3, 5] ou ["seg", "qua"])
             if (Array.isArray(t.is_recurring)) {
               return (
                 t.is_recurring.includes(diaSemanaIndex) ||
@@ -1696,8 +1599,6 @@ export default function App() {
                 )
               );
             }
-
-            // Se o banco salvou como String (ex: "1,3,5" ou "seg, qua")
             const strRec = String(t.is_recurring).toLowerCase();
             return (
               strRec.includes(diaSemanaTexto) ||
@@ -1714,10 +1615,9 @@ export default function App() {
                 className="bg-white dark:bg-slate-900 rounded-xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col border border-slate-200 dark:border-slate-700"
                 onClick={(e) => e.stopPropagation()}
               >
-                {/* Cabeçalho do Modal */}
                 <div className="p-4 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center bg-slate-50 dark:bg-slate-900/50">
                   <h3 className="font-bold text-slate-800 dark:text-slate-200 flex items-center gap-2">
-                    <CalendarDays className="w-5 h-5 text-teal-600" />
+                    <CalendarDays className="w-5 h-5 text-teal-600" />{" "}
                     Planejamento do Dia (
                     {dayAlertsOpen.split("-").reverse().join("/")})
                   </h3>
@@ -1729,17 +1629,16 @@ export default function App() {
                   </button>
                 </div>
 
-                {/* Corpo do Modal */}
+                {/* STYLING DO SCROLL NO MODAL */}
                 <div className="p-4 overflow-y-auto max-h-[60vh] space-y-4 bg-slate-50/30 dark:bg-slate-950/20 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:bg-slate-300 dark:[&::-webkit-scrollbar-thumb]:bg-slate-700 [&::-webkit-scrollbar-track]:bg-transparent">
-                  {/* SEÇÃO 1: ALERTAS CRÍTICOS */}
                   <div>
                     <h4 className="text-xs font-bold text-red-500 dark:text-red-400 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                      <Bell className="w-3.5 h-3.5" /> Prazos e Alertas Críticos
-                      ({alertasCriticos.length})
+                      <Bell className="w-3.5 h-3.5" /> Prazos Críticos (
+                      {alertasCriticos.length})
                     </h4>
                     {alertasCriticos.length === 0 ? (
-                      <p className="text-xs text-slate-400 italic bg-white dark:bg-slate-800 p-3 rounded-lg border border-slate-100 dark:border-slate-800">
-                        Nenhum prazo crítico para hoje.
+                      <p className="text-xs text-slate-400 italic bg-white dark:bg-slate-800 p-3 rounded-lg border border-slate-100">
+                        Nenhum prazo crítico hoje.
                       </p>
                     ) : (
                       <div className="space-y-2">
@@ -1748,13 +1647,13 @@ export default function App() {
                             key={task.id}
                             className="p-3 rounded-lg border border-red-100 dark:border-red-950/30 bg-white dark:bg-slate-800 flex flex-col gap-2 shadow-sm"
                           >
-                            <p className="text-sm font-medium text-slate-800 dark:text-slate-200">
+                            <p className="text-sm font-medium text-slate-800 dark:text-slate-200 break-words whitespace-normal">
                               {task.description}
                             </p>
                             <div className="flex justify-end">
                               <button
                                 onClick={() => jumpToTask(task.id, task.day_id)}
-                                className="flex items-center gap-1 text-[11px] font-bold bg-amber-100 hover:bg-amber-200 text-amber-800 dark:bg-amber-900/40 dark:text-amber-400 px-2.5 py-1.5 rounded transition-colors cursor-pointer"
+                                className="flex items-center gap-1 text-[11px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-400 px-2.5 py-1 rounded transition-colors cursor-pointer"
                               >
                                 <Search className="w-3 h-3" /> VER NA AGENDA
                               </button>
@@ -1765,28 +1664,27 @@ export default function App() {
                     )}
                   </div>
 
-                  {/* SEÇÃO 2: ROTINAS SEMANAIS */}
                   <div>
                     <h4 className="text-xs font-bold text-teal-600 dark:text-teal-400 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                      <Repeat className="w-3.5 h-3.5" /> Rotinas Automáticas
-                      deste Dia ({rotinasDoDia.length})
+                      <Repeat className="w-3.5 h-3.5" /> Rotinas Automáticas (
+                      {rotinasDoDia.length})
                     </h4>
                     {rotinasDoDia.length === 0 ? (
-                      <p className="text-xs text-slate-400 italic bg-white dark:bg-slate-800 p-3 rounded-lg border border-slate-100 dark:border-slate-800">
-                        Nenhuma rotina fixa para este dia da semana.
+                      <p className="text-xs text-slate-400 italic bg-white dark:bg-slate-800 p-3 rounded-lg border border-slate-100">
+                        Nenhuma rotina fixa para hoje.
                       </p>
                     ) : (
                       <div className="space-y-2">
                         {rotinasDoDia.map((task) => (
                           <div
                             key={task.id}
-                            className="p-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 flex flex-col gap-1 shadow-sm"
+                            className="p-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-sm"
                           >
-                            <p className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                            <p className="text-sm font-medium text-slate-700 dark:text-slate-300 break-words whitespace-normal">
                               {task.description}
                             </p>
                             <span className="text-[10px] text-teal-600 dark:text-teal-400 font-semibold uppercase tracking-wider mt-1 block">
-                              🔄 Rotina Semanal ativa
+                              🔄 Rotina Semanal
                             </span>
                           </div>
                         ))}
@@ -1802,9 +1700,95 @@ export default function App() {
       <NotificationCenter tasks={tasks} handleUpdateTask={handleUpdateTask} />
       <AtaReuniao
         isOpen={isAtaOpen}
-        onClose={() => setIsAtaOpen(false)}
+        /* ENGENHARIA: Passa o rascunho ativo para o modal ou limpa se fechar */
+        ataEdicao={ataEditando}
+        onClose={() => {
+          setIsAtaOpen(false);
+          setAtaEditando(null);
+        }}
         recarregarAtas={carregarAtas}
       />
+
+      {/* MINI-MODAL DE CONFIGURAÇÃO DO ALERTA (MOBILE FRIENDLY) */}
+      {alertModalTask && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 transition-all"
+          onClick={() => setAlertModalTask(null)}
+        >
+          <div
+            className="bg-white dark:bg-slate-900 rounded-xl shadow-xl w-full max-w-xs flex flex-col border border-slate-200 dark:border-slate-700 p-5 gap-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="font-bold text-slate-800 dark:text-slate-200 text-center flex items-center justify-center gap-2">
+              <Bell
+                className={`w-5 h-5 ${
+                  alertModalTask.has_notification
+                    ? "text-amber-500"
+                    : "text-slate-400"
+                }`}
+              />
+              Configurar Alerta
+            </h3>
+
+            <div className="flex flex-col gap-4 mt-2">
+              <button
+                onClick={() => {
+                  const isNowActive = !alertModalTask.has_notification;
+                  const parts = alertModalTask.day_id.split("-");
+                  const defaultDate = `${parts[0]}-${parts[1].padStart(
+                    2,
+                    "0"
+                  )}-${parts[2].padStart(2, "0")}`;
+
+                  const updates = {
+                    has_notification: isNowActive,
+                    notification_date:
+                      isNowActive && !alertModalTask.notification_date
+                        ? defaultDate
+                        : alertModalTask.notification_date,
+                  };
+                  handleUpdateTask(alertModalTask.id, updates, true);
+                  setAlertModalTask({ ...alertModalTask, ...updates });
+                }}
+                className={`py-2.5 px-4 rounded-lg font-bold text-sm transition-colors border cursor-pointer ${
+                  alertModalTask.has_notification
+                    ? "bg-red-50 text-red-600 border-red-200 hover:bg-red-100 dark:bg-red-900/20 dark:border-red-900/50 dark:text-red-400"
+                    : "bg-amber-50 text-amber-600 border-amber-200 hover:bg-amber-100 dark:bg-amber-900/20 dark:border-amber-900/50 dark:text-amber-400"
+                }`}
+              >
+                {alertModalTask.has_notification
+                  ? "Desativar Alerta"
+                  : "Ativar Alerta"}
+              </button>
+
+              {alertModalTask.has_notification && (
+                <div className="flex flex-col gap-1.5 animate-fadeIn">
+                  <label className="text-xs font-bold text-slate-500 uppercase">
+                    Data da Notificação:
+                  </label>
+                  <input
+                    type="date"
+                    value={alertModalTask.notification_date || ""}
+                    onChange={(e) => {
+                      const updates = { notification_date: e.target.value };
+                      handleUpdateTask(alertModalTask.id, updates, true);
+                      setAlertModalTask({ ...alertModalTask, ...updates });
+                    }}
+                    className="p-2.5 border border-slate-300 dark:border-slate-700 rounded-lg bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-200 outline-none w-full font-semibold cursor-pointer"
+                  />
+                </div>
+              )}
+            </div>
+
+            <button
+              onClick={() => setAlertModalTask(null)}
+              className="mt-2 w-full py-2.5 bg-slate-800 text-white dark:bg-slate-700 rounded-lg font-bold text-sm hover:bg-slate-700 dark:hover:bg-slate-600 transition-colors cursor-pointer"
+            >
+              Concluído
+            </button>
+          </div>
+        </div>
+      )}
 
       <ModalRecorrentes
         isOpen={isRecorrentesOpen}
