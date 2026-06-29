@@ -11,7 +11,6 @@ import {
 } from "lucide-react";
 import html2pdf from "html2pdf.js";
 import { supabase } from "./supabaseClient";
-import { calcularExpressao } from "./calculator";
 
 export default function AtaReuniao({
   isOpen,
@@ -132,8 +131,10 @@ export default function AtaReuniao({
     setIntCalcExp(val);
     try {
       if (val) {
-        const res = calcularExpressao(val.replace(/[^0-9+\-*/().% ]/g, ""));
-        setIntCalcRes(res !== null ? res : "...");
+        const res = new Function(
+          "return " + val.replace(/[^0-9+\-*/().% ]/g, "")
+        )();
+        setIntCalcRes(res !== undefined && !isNaN(res) ? res : "...");
       } else setIntCalcRes("");
     } catch (e) {
       setIntCalcRes("...");
@@ -221,6 +222,7 @@ export default function AtaReuniao({
           useCORS: true,
           letterRendering: true,
           scrollY: 0,
+          windowWidth: 1024, // <--- O SEGREDO PRO PDF SEMPRE FICAR COMO DESKTOP
         },
         jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
         pagebreak: { mode: ["css", "legacy"], avoid: [".break-inside-avoid"] },
@@ -319,9 +321,9 @@ export default function AtaReuniao({
         className="bg-slate-50 dark:bg-slate-900 w-full max-w-4xl h-[95vh] rounded-xl shadow-2xl flex flex-col overflow-hidden border border-slate-200 dark:border-slate-800"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* CABEÇALHO DO MODAL */}
-        <div className="flex items-center justify-between px-4 sm:px-6 py-3 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 shrink-0">
-          <h2 className="text-base sm:text-lg font-bold text-slate-800 dark:text-slate-100 truncate flex items-center gap-2">
+        {/* CABEÇALHO DO MODAL (MOBILE FRIENDLY) */}
+        <div className="flex flex-col sm:flex-row items-center justify-between px-3 sm:px-6 py-3 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 shrink-0 gap-3 sm:gap-0">
+          <h2 className="text-base sm:text-lg font-bold text-slate-800 dark:text-slate-100 truncate flex items-center justify-center sm:justify-start w-full sm:w-auto gap-2">
             Gerador de Ata{" "}
             {ataEdicao && (
               <span className="text-xs bg-amber-500/20 text-amber-500 font-bold px-2 py-0.5 rounded">
@@ -330,7 +332,7 @@ export default function AtaReuniao({
             )}
           </h2>
 
-          <div className="flex items-center gap-1 sm:gap-2">
+          <div className="flex items-center justify-center gap-1.5 sm:gap-2 w-full sm:w-auto">
             {/* BOTÃO DA CALCULADORA EMBUTIDA */}
             <button
               onClick={() => setIsInternalCalcOpen(!isInternalCalcOpen)}
@@ -348,29 +350,31 @@ export default function AtaReuniao({
             <button
               onClick={salvarRascunho}
               disabled={isSavingDraft || isGenerating}
-              className="flex items-center justify-center gap-2 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 px-3 py-2 rounded-lg font-bold text-xs sm:text-sm cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+              className="flex items-center justify-center gap-1.5 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 px-3 py-2 rounded-lg font-bold text-xs sm:text-sm cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors whitespace-nowrap flex-1 sm:flex-none"
             >
-              <FileText className="w-4 h-4" />{" "}
-              <span>{isSavingDraft ? "Salvando..." : "Salvar Rascunho"}</span>
+              <FileText className="w-4 h-4 shrink-0" />{" "}
+              <span className="hidden sm:inline">{isSavingDraft ? "Salvando..." : "Salvar Rascunho"}</span>
+              <span className="sm:hidden">{isSavingDraft ? "..." : "Salvar"}</span>
             </button>
 
             {/* BOTÃO SALVAR PDF */}
             <button
               onClick={gerarPDF}
               disabled={isGenerating || isSavingDraft}
-              className={`flex items-center justify-center gap-2 text-white px-3 sm:px-5 py-2 rounded-lg font-semibold text-xs sm:text-sm transition-colors shadow-md ${
+              className={`flex items-center justify-center gap-1.5 text-white px-3 sm:px-5 py-2 rounded-lg font-semibold text-xs sm:text-sm transition-colors shadow-md whitespace-nowrap flex-1 sm:flex-none ${
                 isGenerating
                   ? "bg-slate-400 cursor-not-allowed"
                   : "bg-teal-600 hover:bg-teal-700 cursor-pointer"
               }`}
             >
-              <Download className="w-4 h-4" />{" "}
-              <span>{isGenerating ? "Gerando PDF..." : "Finalizar (PDF)"}</span>
+              <Download className="w-4 h-4 shrink-0" />{" "}
+              <span className="hidden sm:inline">{isGenerating ? "Gerando..." : "Finalizar (PDF)"}</span>
+              <span className="sm:hidden">{isGenerating ? "..." : "Finalizar"}</span>
             </button>
 
             <button
               onClick={onClose}
-              className="p-2 text-slate-400 hover:text-slate-600 rounded-lg cursor-pointer"
+              className="p-2 text-slate-400 hover:text-slate-600 rounded-lg cursor-pointer shrink-0"
             >
               <X className="w-5 h-5" />
             </button>
@@ -493,16 +497,16 @@ export default function AtaReuniao({
             id="conteudo-ata"
             className="bg-white w-full max-w-[210mm] h-max shadow-lg py-6 px-4 sm:py-10 sm:px-12 text-slate-900 mx-auto transition-all"
           >
-            <div className="flex items-center justify-center md:justify-start px-4 py-3 border-b border-slate-100 bg-slate-50/50">
+            <div className="flex flex-col md:flex-row items-center justify-center md:justify-start px-4 py-4 border-b border-slate-100 bg-slate-50/50 gap-3 md:gap-0">
               <img
                 src="/logo.png"
                 alt="Geraforte"
                 className="h-7 md:h-9 w-auto object-contain shrink-0"
               />
-              <h1 className="text-2xl sm:text-3xl font-black uppercase tracking-widest text-center leading-none text-slate-900 ml-4">
+              <h1 className="text-2xl sm:text-3xl font-black uppercase tracking-widest text-center leading-none text-slate-900 ml-0 md:ml-4">
                 Ata de Reunião
               </h1>
-              <div className="mt-4 flex items-center justify-center gap-2 text-sm font-bold text-slate-800 ml-auto">
+              <div className="flex items-center justify-center gap-2 text-sm font-bold text-slate-800 ml-0 md:ml-auto">
                 <span>DATA:</span>
                 {isGenerating ? (
                   <span className="border-b border-slate-800 px-2 min-w-[120px] text-center pb-1 inline-block">
