@@ -12,6 +12,84 @@ import {
 import html2pdf from "html2pdf.js";
 import { supabase } from "./supabaseClient";
 
+const calcularExpressaoMatematica = (expressao) => {
+  let index = 0;
+  const texto = expressao.replace(/\s/g, "");
+
+  const obterCaracterAtual = () => texto[index];
+
+  const consumir = (caracter) => {
+    if (obterCaracterAtual() === caracter) {
+      index += 1;
+      return true;
+    }
+    return false;
+  };
+
+  const analisarNumero = () => {
+    const inicio = index;
+    while (/[0-9.]/.test(obterCaracterAtual())) index += 1;
+
+    if (inicio === index) {
+      throw new Error("Numero esperado");
+    }
+
+    const numero = Number(texto.slice(inicio, index));
+    if (!Number.isFinite(numero)) {
+      throw new Error("Numero invalido");
+    }
+
+    return numero;
+  };
+
+  const analisarFator = () => {
+    if (consumir("+")) return analisarFator();
+    if (consumir("-")) return -analisarFator();
+
+    if (consumir("(")) {
+      const valor = analisarExpressao();
+      if (!consumir(")")) {
+        throw new Error("Parenteses nao fechado");
+      }
+      return valor;
+    }
+
+    return analisarNumero();
+  };
+
+  const analisarTermo = () => {
+    let valor = analisarFator();
+
+    while (true) {
+      if (consumir("*")) valor *= analisarFator();
+      else if (consumir("/")) valor /= analisarFator();
+      else if (consumir("%")) valor %= analisarFator();
+      else break;
+    }
+
+    return valor;
+  };
+
+  function analisarExpressao() {
+    let valor = analisarTermo();
+
+    while (true) {
+      if (consumir("+")) valor += analisarTermo();
+      else if (consumir("-")) valor -= analisarTermo();
+      else break;
+    }
+
+    return valor;
+  }
+
+  const resultado = analisarExpressao();
+  if (index !== texto.length || !Number.isFinite(resultado)) {
+    throw new Error("Expressao invalida");
+  }
+
+  return resultado;
+};
+
 export default function AtaReuniao({
   isOpen,
   onClose,
@@ -131,9 +209,8 @@ export default function AtaReuniao({
     setIntCalcExp(val);
     try {
       if (val) {
-        const res = new Function(
-          "return " + val.replace(/[^0-9+\-*/().% ]/g, "")
-        )();
+        const expressaoSegura = val.replace(/[^0-9+\-*/().% ]/g, "");
+        const res = calcularExpressaoMatematica(expressaoSegura);
         setIntCalcRes(res !== undefined && !isNaN(res) ? res : "...");
       } else setIntCalcRes("");
     } catch (e) {
