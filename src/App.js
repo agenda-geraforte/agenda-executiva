@@ -4,6 +4,7 @@ import AtaReuniao from "./AtaReuniao";
 import NotificationCenter from "./NotificationCenter";
 import ModalRecorrentes from "./ModalRecorrentes";
 import { supabase } from "./supabaseClient";
+import { calcularExpressao } from "./calculator";
 import {
   FileText,
   Calculator,
@@ -416,8 +417,8 @@ export default function App() {
     if (calcTab === "padrao") {
       try {
         if (calcExpressao) {
-          const res = new Function("return " + calcExpressao)();
-          setCalcResultado(res !== undefined && !isNaN(res) ? res : "...");
+          const res = calcularExpressao(calcExpressao);
+          setCalcResultado(res !== null ? res : "...");
         } else setCalcResultado("");
       } catch (e) {
         setCalcResultado("...");
