@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import html2pdf from "html2pdf.js";
 import { supabase } from "./supabaseClient";
+import { calcularExpressao } from "./calculator";
 
 export default function AtaReuniao({
   isOpen,
@@ -131,10 +132,8 @@ export default function AtaReuniao({
     setIntCalcExp(val);
     try {
       if (val) {
-        const res = new Function(
-          "return " + val.replace(/[^0-9+\-*/().% ]/g, "")
-        )();
-        setIntCalcRes(res !== undefined && !isNaN(res) ? res : "...");
+        const res = calcularExpressao(val.replace(/[^0-9+\-*/().% ]/g, ""));
+        setIntCalcRes(res !== null ? res : "...");
       } else setIntCalcRes("");
     } catch (e) {
       setIntCalcRes("...");
